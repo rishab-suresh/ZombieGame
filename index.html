@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store, max-age=0" />
+    <title>Zombie Survivor — night extract</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        background: #1e2630;
+        color: #d8e0e8;
+      }
+      canvas {
+        display: block;
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 0;
+        cursor: crosshair;
+      }
+      .crosshair {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        width: 6px;
+        height: 6px;
+        margin: -3px 0 0 -3px;
+        border: 1px solid rgba(255, 255, 255, 0.65);
+        border-radius: 999px;
+        pointer-events: none;
+        z-index: 40;
+        opacity: 0;
+        box-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+      }
+      .crosshair.visible {
+        opacity: 1;
+      }
+      .hud {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        pointer-events: none;
+        padding: 0.85rem 1.1rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      .hud-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        text-shadow: 0 1px 3px #000;
+      }
+      .stat {
+        font-variant-numeric: tabular-nums;
+        font-size: 0.9rem;
+        opacity: 0.92;
+      }
+      .stat strong {
+        font-weight: 600;
+        color: #9abf9a;
+      }
+      .stat.buff {
+        margin-top: 0.35rem;
+        color: #7dd3e8;
+      }
+      .stat.buff.inactive {
+        opacity: 0.35;
+        color: #5a6a70;
+      }
+      .stat.buff-fire {
+        margin-top: 0.2rem;
+        color: #e8a060;
+      }
+      .stat.buff-fire.inactive {
+        color: #5a5048;
+      }
+      .stat.weapon-line {
+        margin-top: 0.25rem;
+        color: #b8c8e0;
+      }
+      .stat.daynight-line {
+        margin-top: 0.15rem;
+        color: #c8b898;
+        font-size: 0.82rem;
+      }
+      .stat.ammo-line {
+        margin-top: 0.2rem;
+        color: #e8d8a8;
+      }
+      #flashRow {
+        color: #ffe6a8;
+      }
+      .stat.objective-line {
+        margin-top: 0.2rem;
+        color: #9be0c8;
+        max-width: 20rem;
+        font-size: 0.84rem;
+      }
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 18%;
+        transform: translateX(-50%);
+        z-index: 55;
+        pointer-events: none;
+        padding: 0.45rem 0.9rem;
+        background: rgba(8, 12, 16, 0.82);
+        border: 1px solid rgba(120, 255, 200, 0.25);
+        font-size: 0.88rem;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        text-shadow: 0 1px 3px #000;
+      }
+      .toast.visible {
+        opacity: 1;
+      }
+      .health-bar {
+        width: 11rem;
+        height: 0.45rem;
+        background: rgba(0, 0, 0, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 2px;
+        margin-top: 0.35rem;
+        overflow: hidden;
+      }
+      .health-fill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, #4a1515, #8b2a2a);
+        transform-origin: left center;
+        transition: transform 0.12s ease-out;
+      }
+      .hint {
+        font-size: 0.74rem;
+        opacity: 0.72;
+        max-width: 17rem;
+        line-height: 1.45;
+      }
+      .hint strong {
+        font-weight: 600;
+        color: #b8d4c8;
+      }
+      .overlay {
+        position: fixed;
+        inset: 0;
+        display: none;
+        place-items: center;
+        background: rgba(4, 6, 8, 0.82);
+        pointer-events: auto;
+        z-index: 100;
+      }
+      .overlay.visible {
+        display: grid;
+      }
+      .card {
+        text-align: center;
+        padding: 2rem 2.5rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(12, 14, 16, 0.95);
+        max-width: 22rem;
+      }
+      .card h1 {
+        font-size: 1.35rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        color: #a87878;
+      }
+      .card p {
+        font-size: 0.88rem;
+        opacity: 0.75;
+        margin-bottom: 1.25rem;
+        line-height: 1.45;
+      }
+      .card button {
+        font: inherit;
+        padding: 0.55rem 1.35rem;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: #1a221a;
+        color: #d8e8d8;
+        cursor: pointer;
+      }
+      .card button:hover {
+        background: #243024;
+      }
+      .customize {
+        text-align: left;
+        margin: 0.75rem 0 0;
+        padding-top: 0.75rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .customize label {
+        display: block;
+        font-size: 0.78rem;
+        opacity: 0.88;
+        margin-bottom: 0.2rem;
+      }
+      .customize input[type="text"] {
+        width: 100%;
+        font: inherit;
+        padding: 0.38rem 0.5rem;
+        margin-bottom: 0.65rem;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background: rgba(0, 0, 0, 0.35);
+        color: #e8ecf0;
+        border-radius: 3px;
+      }
+      .customize input[type="color"] {
+        width: 100%;
+        height: 2rem;
+        margin-bottom: 0.65rem;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        cursor: pointer;
+        padding: 2px;
+        background: #1a1e24;
+      }
+      .customize .speed-row {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 0.55rem;
+      }
+      .customize input[type="range"] {
+        flex: 1;
+        min-width: 0;
+      }
+      .customize .speed-val {
+        font-variant-numeric: tabular-nums;
+        font-size: 0.8rem;
+        opacity: 0.85;
+        min-width: 3.2rem;
+        text-align: right;
+      }
+      .cam-row {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        margin-bottom: 0.85rem;
+        flex-wrap: wrap;
+      }
+      .cam-row label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.84rem;
+        cursor: pointer;
+      }
+      .launcher-bar {
+        position: fixed;
+        left: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 80;
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        padding: 0.65rem 0.85rem;
+        max-width: 16rem;
+        background: rgba(8, 10, 14, 0.88);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 6px;
+        pointer-events: auto;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+      }
+      .launcher-bar.hidden {
+        display: none;
+      }
+      .launcher-title {
+        font-size: 0.72rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        opacity: 0.88;
+        color: #9dd4c4;
+      }
+      .launcher-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+      }
+      .launcher-bar button {
+        font: inherit;
+        padding: 0.45rem 0.75rem;
+        border: 1px solid rgba(120, 255, 200, 0.22);
+        background: #162820;
+        color: #d8ece4;
+        cursor: pointer;
+        border-radius: 4px;
+        font-size: 0.85rem;
+      }
+      .launcher-bar button:hover {
+        background: #1e3828;
+      }
+      .launcher-bar .launcher-hint {
+        font-size: 0.72rem;
+        opacity: 0.65;
+        line-height: 1.4;
+      }
+      .pause-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 95;
+        display: none;
+        place-items: center;
+        background: rgba(2, 4, 8, 0.55);
+        pointer-events: auto;
+        backdrop-filter: blur(2px);
+      }
+      .pause-overlay.visible {
+        display: grid;
+      }
+      .pause-card {
+        width: min(26rem, calc(100vw - 2rem));
+        padding: 1.35rem 1.45rem;
+        border: 1px solid rgba(120, 255, 200, 0.2);
+        background: rgba(10, 12, 16, 0.94);
+        border-radius: 8px;
+        box-shadow: 0 20px 70px rgba(0, 0, 0, 0.65);
+      }
+      .pause-card h2 {
+        font-size: 1.15rem;
+        margin-bottom: 0.35rem;
+        color: #b8dcc8;
+        font-weight: 650;
+      }
+      .pause-sub {
+        font-size: 0.82rem;
+        opacity: 0.72;
+        margin-bottom: 0.85rem;
+      }
+      .pause-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+      }
+      .pause-actions button {
+        font: inherit;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(22, 28, 34, 0.9);
+        color: #e8f0e8;
+      }
+      .pause-actions button.primary {
+        background: #163326;
+        border-color: rgba(120, 255, 200, 0.3);
+      }
+      .pause-actions button:hover {
+        filter: brightness(1.08);
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .vhs-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 25;
+        pointer-events: none;
+        background: repeating-linear-gradient(
+          to bottom,
+          transparent 0,
+          transparent 2px,
+          rgba(0, 0, 0, 0.14) 2px,
+          rgba(0, 0, 0, 0.14) 3px
+        );
+        mix-blend-mode: overlay;
+        opacity: 0.5;
+        box-shadow: inset 0 0 140px rgba(0, 0, 0, 0.78);
+      }
+      .vhs-overlay::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(ellipse at center, transparent 52%, rgba(28, 0, 16, 0.55) 100%),
+          linear-gradient(92deg, rgba(120, 0, 0, 0.07), transparent 40%, rgba(0, 40, 120, 0.08));
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas" aria-hidden="true"></canvas>
+    <div class="vhs-overlay" aria-hidden="true"></div>
+    <div class="crosshair" id="crosshair" aria-hidden="true"></div>
+    <div class="toast" id="toast" role="status"></div>
+    <div class="hud">
+      <div class="hud-top">
+        <div>
+          <div class="stat"><strong>Wave</strong> <span id="wave">1</span></div>
+          <div class="stat"><strong>Alive</strong> <span id="alive">0</span></div>
+          <div class="stat"><strong>Kills</strong> <span id="kills">0</span></div>
+          <div class="health-bar"><div class="health-fill" id="healthFill"></div></div>
+          <div class="stat buff inactive" id="buffRow">
+            <strong>Auto-aim</strong> <span id="buffTime">—</span>
+          </div>
+          <div class="stat buff buff-fire inactive" id="rapidBuffRow">
+            <strong>Rapid fire</strong> <span id="rapidBuffTime">—</span>
+          </div>
+          <div class="stat weapon-line" id="weaponRow">
+            <strong>Weapon</strong> <span id="weaponName">Pistol</span>
+          </div>
+          <div class="stat ammo-line" id="ammoRow">
+            <strong>Ammo</strong> <span id="ammoText">—</span>
+          </div>
+          <div class="stat ammo-line" id="flashRow">
+            <strong>Flash</strong> <span id="flashText">—</span>
+          </div>
+          <div class="stat objective-line" id="objectiveRow">
+            <strong>Objective</strong> <span id="objectiveText">Collect fuel cells, then extract via the portal.</span>
+          </div>
+          <div class="stat daynight-line" id="dayNightRow">
+            <strong>Sky</strong> <span id="dayNightLabel">Dead of night</span>
+          </div>
+        </div>
+        <div class="hint">
+          <strong>Look</strong>: click the game to capture the mouse. <strong>WASD</strong> moves relative where you’re facing.
+          <strong>Esc</strong> — pause, camera mode &amp; character. <strong>F</strong> flashlight (finite battery). <strong>V</strong> melee (break barrels).
+        </div>
+      </div>
+    </div>
+
+    <div class="launcher-bar" id="launcherBar" aria-label="Start game">
+      <div class="launcher-title">Zombie Survivor · tp3-night</div>
+      <div class="launcher-actions">
+        <button type="button" id="launcherPlay" class="primary">Play</button>
+      </div>
+      <div class="launcher-hint">Small bar only — full map stays visible. After starting, use Esc for options &amp; first/third person.</div>
+    </div>
+
+    <div class="pause-overlay" id="pauseOverlay" aria-hidden="true" role="dialog" aria-label="Paused">
+      <div class="pause-card">
+        <h2>Paused</h2>
+        <div class="pause-sub">Esc to resume. Change view · character · portal handoff fields.</div>
+        <div class="cam-row">
+          <span style="font-size: 0.78rem; opacity: 0.85">Camera</span>
+          <label><input type="radio" name="cameraPerson" id="cameraThird" value="third" checked /> Third person</label>
+          <label><input type="radio" name="cameraPerson" id="cameraFirst" value="first" /> First person</label>
+        </div>
+        <div class="customize" style="margin: 0; padding-top: 0; border-top: 0">
+          <label for="playerName">Name (portal)</label>
+          <input type="text" id="playerName" maxlength="32" placeholder="Survivor" autocomplete="nickname" />
+          <label for="playerColor">Color (portal)</label>
+          <input type="color" id="playerColor" value="#5a7ec8" />
+          <label for="playerSpeed">Move speed</label>
+          <div class="speed-row">
+            <input type="range" id="playerSpeed" min="6" max="18" step="0.5" value="11" />
+            <span class="speed-val" id="playerSpeedVal">11</span>
+          </div>
+        </div>
+        <div class="pause-actions">
+          <button type="button" id="pauseResumeBtn" class="primary">Resume game</button>
+          <button type="button" id="pauseDefaultsBtn">Defaults</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="overlay" id="gameOverOverlay">
+      <div class="card">
+        <h1>That run’s over</h1>
+        <p id="gameOverStats"></p>
+        <button type="button" id="restartBtn">Try again</button>
+      </div>
+    </div>
+    <script async src="https://jam.pieter.com/2026/widget.js"></script>
+    <script type="module" src="./survivor-tp3.mjs"></script>
+  </body>
+</html>
