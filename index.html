@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta http-equiv="Cache-Control" content="no-store, max-age=0" />
-    <title>Zombie Survivor — night extract</title>
+    <title>Zombie Survivor</title>
     <style>
       * {
         box-sizing: border-box;
@@ -319,6 +319,35 @@
         opacity: 0.65;
         line-height: 1.4;
       }
+      .diff-row {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        font-size: 0.78rem;
+      }
+      .diff-row .diff-label {
+        opacity: 0.85;
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .diff-options {
+        display: flex;
+        flex-direction: column;
+        gap: 0.28rem;
+      }
+      .diff-options label {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        cursor: pointer;
+      }
+      .diff-desc {
+        font-size: 0.68rem;
+        opacity: 0.62;
+        line-height: 1.35;
+        min-height: 2.5em;
+      }
       .pause-overlay,
       .overlay,
       .launcher-bar {
@@ -405,6 +434,20 @@
           radial-gradient(ellipse at center, transparent 52%, rgba(28, 0, 16, 0.55) 100%),
           linear-gradient(92deg, rgba(120, 0, 0, 0.07), transparent 40%, rgba(0, 40, 120, 0.08));
         pointer-events: none;
+      }
+      .vhs-overlay.night {
+        mix-blend-mode: multiply;
+        background: repeating-linear-gradient(
+          to bottom,
+          transparent 0,
+          transparent 2px,
+          rgba(0, 0, 0, 0.22) 2px,
+          rgba(0, 0, 0, 0.22) 3px
+        );
+        box-shadow: inset 0 0 220px rgba(0, 0, 0, 0.94), inset 0 0 80px rgba(20, 0, 0, 0.55);
+      }
+      .vhs-overlay.night::after {
+        background: radial-gradient(ellipse at center, transparent 38%, rgba(0, 0, 0, 0.88) 100%);
       }
       .touch-ui {
         position: fixed;
@@ -615,10 +658,10 @@
             <strong>Flash</strong> <span id="flashText">—</span>
           </div>
           <div class="stat objective-line" id="objectiveRow">
-            <strong>Objective</strong> <span id="objectiveText">Collect fuel cells, then extract via the portal.</span>
+            <strong>Objective</strong> <span id="objectiveText">Find four keys. Each key makes nights harder. Extract west.</span>
           </div>
           <div class="stat daynight-line" id="dayNightRow">
-            <strong>Sky</strong> <span id="dayNightLabel">Dead of night</span>
+            <strong>Sky</strong> <span id="dayNightLabel">—</span>
           </div>
         </div>
         <div class="hint" id="desktopHint">
@@ -629,7 +672,15 @@
     </div>
 
     <div class="launcher-bar" id="launcherBar" aria-label="Start game">
-      <div class="launcher-title">Zombie Survivor · tp3-night</div>
+      <div class="launcher-title">Zombie Survivor</div>
+      <div class="diff-row" role="radiogroup" aria-label="Difficulty">
+        <span class="diff-label">Difficulty</span>
+        <div class="diff-options">
+          <label><input type="radio" name="gameDifficulty" id="diffCasual" value="casual" /> Casual — more ammo &amp; action</label>
+          <label><input type="radio" name="gameDifficulty" id="diffSurvival" value="survival" checked /> Survival — default nights</label>
+        </div>
+        <p class="diff-desc" id="diffDesc">Survival: scarce ammo, brutal nights, keys make each wave worse.</p>
+      </div>
       <div class="launcher-actions">
         <button type="button" id="launcherPlay" class="primary">Play</button>
       </div>
@@ -654,16 +705,14 @@
     <div class="pause-overlay" id="pauseOverlay" aria-hidden="true" role="dialog" aria-label="Paused">
       <div class="pause-card">
         <h2>Paused</h2>
-        <div class="pause-sub">Esc or Resume. Change view · character · portal handoff fields.</div>
+        <div class="pause-sub">Esc or Resume. Camera, look, and character.</div>
         <div class="cam-row">
           <span style="font-size: 0.78rem; opacity: 0.85">Camera</span>
-          <label><input type="radio" name="cameraPerson" id="cameraThird" value="third" checked /> Third person</label>
-          <label><input type="radio" name="cameraPerson" id="cameraFirst" value="first" /> First person</label>
+          <label><input type="radio" name="cameraPerson" id="cameraThird" value="third" /> Third person</label>
+          <label><input type="radio" name="cameraPerson" id="cameraFirst" value="first" checked /> First person</label>
         </div>
         <div class="customize" style="margin: 0; padding-top: 0; border-top: 0">
-          <label for="playerName">Name (portal)</label>
-          <input type="text" id="playerName" maxlength="32" placeholder="Survivor" autocomplete="nickname" />
-          <label for="playerColor">Color (portal)</label>
+          <label for="playerColor">Color</label>
           <input type="color" id="playerColor" value="#5a7ec8" />
           <label for="playerSpeed">Move speed</label>
           <div class="speed-row">
@@ -680,12 +729,11 @@
 
     <div class="overlay" id="gameOverOverlay">
       <div class="card">
-        <h1>That run’s over</h1>
+        <h1 id="gameOverTitle">That run’s over</h1>
         <p id="gameOverStats"></p>
         <button type="button" id="restartBtn">Try again</button>
       </div>
     </div>
-    <script async src="https://jam.pieter.com/2026/widget.js"></script>
-    <script type="module" src="./survivor-tp3.mjs"></script>
+    <script type="module" src="./survivor-tp3.mjs?v=17"></script>
   </body>
 </html>

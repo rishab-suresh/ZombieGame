@@ -1,7 +1,7 @@
 import * as THREE from "https://unpkg.com/three@0.170.0/build/three.module.js";
 
 console.info(
-  "%cZombie Survivor%c tp3 — Play (corner bar) · Esc pause · first/third person.",
+  "%cZombie Survivor%c — Play · Esc pause · first/third person.",
   "color:#7dd3c0;font-weight:bold",
   "color:inherit;font-weight:normal"
 );
@@ -20,21 +20,25 @@ const el = {
   dayNightRow: document.getElementById("dayNightRow"),
   dayNightLabel: document.getElementById("dayNightLabel"),
   gameOverOverlay: document.getElementById("gameOverOverlay"),
+  gameOverTitle: document.getElementById("gameOverTitle"),
   gameOverStats: document.getElementById("gameOverStats"),
   restartBtn: document.getElementById("restartBtn"),
   launcherBar: document.getElementById("launcherBar"),
   launcherPlay: document.getElementById("launcherPlay"),
+  diffCasual: document.getElementById("diffCasual"),
+  diffSurvival: document.getElementById("diffSurvival"),
+  diffDesc: document.getElementById("diffDesc"),
   pauseOverlay: document.getElementById("pauseOverlay"),
   pauseResumeBtn: document.getElementById("pauseResumeBtn"),
   pauseDefaultsBtn: document.getElementById("pauseDefaultsBtn"),
   cameraFirst: document.getElementById("cameraFirst"),
   cameraThird: document.getElementById("cameraThird"),
-  playerName: document.getElementById("playerName"),
   playerColor: document.getElementById("playerColor"),
   playerSpeed: document.getElementById("playerSpeed"),
   playerSpeedVal: document.getElementById("playerSpeedVal"),
   crosshair: document.getElementById("crosshair"),
   toast: document.getElementById("toast"),
+  vhsOverlay: document.querySelector(".vhs-overlay"),
   ammoText: document.getElementById("ammoText"),
   flashText: document.getElementById("flashText"),
   objectiveText: document.getElementById("objectiveText"),
@@ -75,12 +79,11 @@ function fitRenderer() {
   const { w, h } = viewSize();
   renderer.setPixelRatio(currentPixelRatio());
   renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
   canvas.style.width = "100%";
   canvas.style.height = "100%";
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
 }
-fitRenderer();
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.88;
@@ -90,14 +93,15 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050208);
 
-const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 520);
+const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 1400);
 camera.position.set(0, 38, 32);
+fitRenderer();
 
 const fogColor = new THREE.Color(0x020105);
-scene.fog = new THREE.FogExp2(fogColor.getHex(), 0.041);
+scene.fog = new THREE.FogExp2(fogColor.getHex(), 0.016);
 const skyWork = new THREE.Color();
 const skyDay = new THREE.Color(0x7aa0c8);
-const skyNight = new THREE.Color(0x050208);
+const skyNight = new THREE.Color(0x000000);
 const skyDusk = new THREE.Color(0xc07040);
 const skyDawn = new THREE.Color(0xe8a878);
 
@@ -133,6 +137,9 @@ scene.add(torchTarget);
 
 let torchFlameMesh = null;
 
+const FLASH_REACH = 7.8;
+const FLASH_HARD_CUT = 9.2;
+
 function terrainHeightAt(x, z) {
   return (
     Math.sin(x * 0.07) * 0.55 +
@@ -142,11 +149,11 @@ function terrainHeightAt(x, z) {
   );
 }
 
-const WORLD_LIMIT = 180;
-const GATE_LINE_X = -72;
+const WORLD_LIMIT = 480;
+const GATE_LINE_X = -200;
 const GATE_PASS_X = GATE_LINE_X + 1.9;
-const JAM_PORTAL_POS = { x: -166, z: 30, enterRadius: 3.05 };
-const GROUND_HALF = 204;
+const EXTRACT_PORTAL_POS = { x: -430, z: 48, enterRadius: 3.05 };
+const GROUND_HALF = WORLD_LIMIT + 28;
 
 const groundGeo = new THREE.PlaneGeometry(GROUND_HALF * 2, GROUND_HALF * 2, 96, 96);
 groundGeo.rotateX(-Math.PI / 2);
@@ -192,12 +199,14 @@ const foliageMat = new THREE.MeshStandardMaterial({
 /** @type {{ x: number, z: number, r: number }[]} */
 const treeColliders = [];
 const TREE_SCALE = 2.35;
+const TREE_COUNT = IS_LITE_GPU ? 280 : 560;
+const BUSH_COUNT = IS_LITE_GPU ? 360 : 780;
 const TREE_EXTENT = WORLD_LIMIT + 22;
-for (let i = 0; i < 210; i++) {
+for (let i = 0; i < TREE_COUNT; i++) {
   const x = -TREE_EXTENT + Math.random() * (2 * TREE_EXTENT);
   const z = -TREE_EXTENT + Math.random() * (2 * TREE_EXTENT);
-  if (x * x + z * z < 420) continue;
-  if (Math.hypot(x - JAM_PORTAL_POS.x, z - JAM_PORTAL_POS.z) < 28) continue;
+  if (x * x + z * z < 900) continue;
+  if (Math.hypot(x - EXTRACT_PORTAL_POS.x, z - EXTRACT_PORTAL_POS.z) < 28) continue;
   if (x > GATE_LINE_X - 4 && x < GATE_LINE_X + 5 && Math.abs(z) < 44) continue;
   const tree = new THREE.Group();
   tree.scale.setScalar(TREE_SCALE);
@@ -229,11 +238,11 @@ for (let i = 0; i < 210; i++) {
 scene.add(treesGroup);
 
 const bushesGroup = new THREE.Group();
-for (let i = 0; i < 340; i++) {
+for (let i = 0; i < BUSH_COUNT; i++) {
   const x = -TREE_EXTENT + Math.random() * (2 * TREE_EXTENT);
   const z = -TREE_EXTENT + Math.random() * (2 * TREE_EXTENT);
-  if (x * x + z * z < 220) continue;
-  if (Math.hypot(x - JAM_PORTAL_POS.x, z - JAM_PORTAL_POS.z) < 20) continue;
+  if (x * x + z * z < 480) continue;
+  if (Math.hypot(x - EXTRACT_PORTAL_POS.x, z - EXTRACT_PORTAL_POS.z) < 20) continue;
   if (x > GATE_LINE_X - 4 && x < GATE_LINE_X + 5 && Math.abs(z) < 48) continue;
   const bush = new THREE.Group();
   const bh = terrainHeightAt(x, z);
@@ -302,25 +311,51 @@ function updateGateAnimation(dt) {
   gateDoorMesh.position.y = THREE.MathUtils.lerp(gateDoorMesh.position.y, -5.5, 1 - Math.exp(-dt * 1.65));
 }
 
+const GEO_RAD = IS_LITE_GPU ? 8 : 14;
+const GEO_CAP = IS_LITE_GPU ? 3 : 6;
+
 const playerGroup = new THREE.Group();
 const playerRig = new THREE.Group();
 playerGroup.add(playerRig);
 
+const playerSkinMat = new THREE.MeshStandardMaterial({
+  color: 0xc4a07a,
+  roughness: 0.62,
+  metalness: 0.04,
+});
 const playerLegMat = new THREE.MeshStandardMaterial({
   color: 0x3d4e78,
   roughness: 0.78,
   metalness: 0.08,
 });
+const playerBootMat = new THREE.MeshStandardMaterial({
+  color: 0x1c1814,
+  roughness: 0.7,
+  metalness: 0.12,
+});
+const playerGunMat = new THREE.MeshStandardMaterial({
+  color: 0x2a2c30,
+  roughness: 0.38,
+  metalness: 0.62,
+});
+
 function addPlayerLeg(side) {
   const hip = new THREE.Group();
-  hip.position.set(side * 0.17, 0.54, 0);
-  const legMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.072, 0.055, 0.46, 6),
-    playerLegMat
-  );
-  legMesh.position.y = -0.21;
-  legMesh.castShadow = true;
-  hip.add(legMesh);
+  hip.position.set(side * 0.13, 0.92, 0);
+  const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.28, GEO_CAP, GEO_RAD), playerLegMat);
+  thigh.position.y = -0.2;
+  thigh.castShadow = true;
+  thigh.receiveShadow = true;
+  hip.add(thigh);
+  const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.26, GEO_CAP, GEO_RAD), playerLegMat);
+  shin.position.y = -0.52;
+  shin.castShadow = true;
+  hip.add(shin);
+  const boot = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.12, 2, GEO_RAD), playerBootMat);
+  boot.rotation.x = Math.PI * 0.5;
+  boot.position.set(0, -0.7, 0.05);
+  boot.castShadow = true;
+  hip.add(boot);
   playerRig.add(hip);
   return hip;
 }
@@ -328,39 +363,87 @@ const playerLegL = addPlayerLeg(-1);
 const playerLegR = addPlayerLeg(1);
 
 const playerTorso = new THREE.Group();
+playerTorso.position.y = 0.02;
 playerRig.add(playerTorso);
 
 const body = new THREE.Mesh(
-  new THREE.IcosahedronGeometry(0.52, 0),
+  new THREE.CapsuleGeometry(0.2, 0.42, GEO_CAP, GEO_RAD),
   new THREE.MeshStandardMaterial({
     color: 0x5a7ec8,
-    roughness: 0.62,
-    metalness: 0.16,
+    roughness: 0.55,
+    metalness: 0.18,
   })
 );
-body.scale.set(0.92, 1.35, 0.88);
-body.position.y = 0.95;
+body.position.y = 1.18;
 body.castShadow = true;
+body.receiveShadow = true;
 playerTorso.add(body);
-const muzzle = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.065, 0.09, 0.58, 6),
-  new THREE.MeshStandardMaterial({ color: 0x3a3028, roughness: 0.55, metalness: 0.45 })
+
+const playerCollar = new THREE.Mesh(
+  new THREE.TorusGeometry(0.16, 0.035, 8, GEO_RAD),
+  body.material
 );
-muzzle.rotation.z = Math.PI / 2;
-muzzle.position.set(0.32, 1.08, 0.48);
+playerCollar.rotation.x = Math.PI * 0.5;
+playerCollar.position.y = 1.42;
+playerTorso.add(playerCollar);
+
+const playerHead = new THREE.Group();
+playerHead.position.y = 1.58;
+const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.155, GEO_RAD + 2, GEO_RAD), playerSkinMat);
+headMesh.scale.set(0.92, 1.05, 0.9);
+headMesh.castShadow = true;
+playerHead.add(headMesh);
+const hair = new THREE.Mesh(
+  new THREE.SphereGeometry(0.16, GEO_RAD, 8, 0, Math.PI * 2, 0, Math.PI * 0.55),
+  new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 0.9, metalness: 0.02 })
+);
+hair.rotation.x = 0.15;
+hair.position.y = 0.02;
+playerHead.add(hair);
+playerTorso.add(playerHead);
+
+function addPlayerArm(side) {
+  const shoulder = new THREE.Group();
+  shoulder.position.set(side * 0.28, 1.34, 0);
+  const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.22, GEO_CAP, GEO_RAD), body.material);
+  upper.position.y = -0.16;
+  upper.castShadow = true;
+  shoulder.add(upper);
+  const lower = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.2, GEO_CAP, GEO_RAD), playerSkinMat);
+  lower.position.y = -0.4;
+  lower.castShadow = true;
+  shoulder.add(lower);
+  playerTorso.add(shoulder);
+  return shoulder;
+}
+const playerArmL = addPlayerArm(-1);
+const playerArmR = addPlayerArm(1);
+playerArmL.rotation.z = 0.18;
+playerArmR.rotation.z = -0.22;
+playerArmR.rotation.x = -0.55;
+
+const gun = new THREE.Group();
+gun.position.set(0.08, -0.52, 0.22);
+playerArmR.add(gun);
+const stock = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.12, 0.22), playerGunMat);
+stock.position.z = -0.08;
+gun.add(stock);
+const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.034, 0.42, GEO_RAD), playerGunMat);
+muzzle.rotation.x = Math.PI * 0.5;
+muzzle.position.z = 0.18;
 muzzle.castShadow = true;
-playerTorso.add(muzzle);
+gun.add(muzzle);
 
 const torchHandle = new THREE.Mesh(
-  new THREE.BoxGeometry(0.1, 0.48, 0.12),
-  new THREE.MeshStandardMaterial({ color: 0x4a3528, roughness: 0.82, metalness: 0.08 })
+  new THREE.CylinderGeometry(0.035, 0.04, 0.28, GEO_RAD),
+  new THREE.MeshStandardMaterial({ color: 0x3a2a20, roughness: 0.75, metalness: 0.15 })
 );
-torchHandle.position.set(0.38, 1.0, 0.1);
-torchHandle.rotation.set(0.25, 0, -0.35);
+torchHandle.position.set(0.02, -0.48, 0.08);
+torchHandle.rotation.x = 0.4;
 torchHandle.castShadow = true;
-playerTorso.add(torchHandle);
+playerArmL.add(torchHandle);
 torchFlameMesh = new THREE.Mesh(
-  new THREE.OctahedronGeometry(0.16, 0),
+  new THREE.SphereGeometry(0.07, 10, 8),
   new THREE.MeshStandardMaterial({
     color: 0xffaa55,
     emissive: 0xff6600,
@@ -369,21 +452,26 @@ torchFlameMesh = new THREE.Mesh(
     metalness: 0.1,
   })
 );
-torchFlameMesh.position.set(0.48, 1.22, 0.14);
-playerTorso.add(torchFlameMesh);
+torchFlameMesh.position.set(0.02, -0.32, 0.16);
+playerArmL.add(torchFlameMesh);
 
-const playerTorchPoint = new THREE.PointLight(0xffccaa, 16, 94, 1.05);
+const playerTorchPoint = new THREE.PointLight(0xffcc88, 4, 7, 2);
 playerTorchPoint.castShadow = false;
-playerTorchPoint.position.copy(torchFlameMesh.position);
-playerTorso.add(playerTorchPoint);
+scene.add(playerTorchPoint);
 
-const playerTorchSpot = new THREE.SpotLight(0xffddbb, 14, 98, 0.58, 0.36, 1);
-playerTorchSpot.castShadow = true;
-playerTorchSpot.shadow.mapSize.setScalar(1024);
-playerTorchSpot.shadow.bias = -0.0002;
-playerTorchSpot.position.set(0.5, 1.2, 0.14);
+const playerTorchSpot = new THREE.SpotLight(0xffe8c8, 12, FLASH_HARD_CUT, 0.36, 0.24, 0.65);
+playerTorchSpot.castShadow = !IS_LITE_GPU;
+playerTorchSpot.shadow.mapSize.setScalar(IS_LITE_GPU ? 512 : 1024);
+playerTorchSpot.shadow.bias = -0.00012;
+playerTorchSpot.shadow.camera.near = 0.2;
+playerTorchSpot.shadow.camera.far = FLASH_HARD_CUT + 2;
+const flashRig = new THREE.Group();
+scene.add(flashRig);
+flashRig.add(playerTorchSpot);
+flashRig.add(torchTarget);
+playerTorchSpot.position.set(0, 0, 0);
+torchTarget.position.set(0, 0, -FLASH_REACH);
 playerTorchSpot.target = torchTarget;
-playerTorso.add(playerTorchSpot);
 
 let playerWalkPhase = 0;
 let playerWalkAmp = 0;
@@ -392,7 +480,6 @@ playerGroup.position.set(0, 0, 0);
 scene.add(playerGroup);
 
 let playerMoveSpeed = 11;
-let playerDisplayName = "Survivor";
 let introCameraActive = false;
 let introCameraT = 0;
 const INTRO_CAM_SEC = 2.12;
@@ -411,16 +498,68 @@ const LOOK_PITCH_MIN = -1.15;
 const LOOK_PITCH_MAX = 1.12;
 const CAM_MOUSE_SENS = 0.0022;
 const CAM_TOUCH_SENS = 0.0034;
-const DAY_CYCLE_SEC = 108;
+const DAY_CYCLE_SEC = 220;
 const CAM_FOV_THIRD = 52;
 const CAM_FOV_FIRST = 78;
-const FP_EYE_Y = 1.38;
+const FP_EYE_Y = 1.62;
 const CAM_PREF_KEY = "zs-survivor-cam";
+const DIFF_PREF_KEY = "zs-survivor-diff";
 /** @type {'first' | 'third'} */
-let cameraPerson = "third";
+let cameraPerson = "first";
+/** @type {'casual' | 'survival'} */
+let gameDifficulty = "survival";
 
-const EXTRACT_FUEL_NEEDED = 4;
-let extractFuelCollected = 0;
+const DIFF = {
+  survival: {
+    pistolStart: [10, 18],
+    shotgunStart: [2, 10],
+    smgStart: [0, 48],
+    ammoPickup: { pistol: 6, shotgun: 2, smg: 8 },
+    pickupMax: 28,
+    ambientMax: 6,
+    ambientInterval: [24, 38],
+    killDropChance: 0.09,
+    zombieWaveMul: 1,
+    zombieHpMul: 1,
+    zombieDmgMul: 1,
+    zombieSpeedMul: 1,
+    keySpawnQueueMul: 1,
+    spawnDelayMul: 1,
+  },
+  casual: {
+    pistolStart: [24, 36],
+    shotgunStart: [6, 16],
+    smgStart: [18, 64],
+    ammoPickup: { pistol: 12, shotgun: 4, smg: 16 },
+    pickupMax: 42,
+    ambientMax: 11,
+    ambientInterval: [12, 20],
+    killDropChance: 0.24,
+    zombieWaveMul: 1.45,
+    zombieHpMul: 0.72,
+    zombieDmgMul: 0.6,
+    zombieSpeedMul: 1.08,
+    keySpawnQueueMul: 0.55,
+    spawnDelayMul: 0.72,
+  },
+};
+
+function diffCfg() {
+  return DIFF[gameDifficulty];
+}
+
+function isCasual() {
+  return gameDifficulty === "casual";
+}
+
+function difficultyLabel() {
+  return isCasual() ? "Casual" : "Survival";
+}
+
+const KEYS_NEEDED = 4;
+let keysCollected = 0;
+let hordeWasNight = false;
+let hordeEverStarted = false;
 
 /** @type {{ pistol: { cur: number, max: number }, shotgun: { cur: number, max: number }, smg: { cur: number, max: number } }} */
 const ammoState = {
@@ -457,10 +596,10 @@ function makePortalLabelSprite(lines) {
   return spr;
 }
 
-const jamPortalGroup = new THREE.Group();
+const extractPortalGroup = new THREE.Group();
 {
-  const ph = terrainHeightAt(JAM_PORTAL_POS.x, JAM_PORTAL_POS.z);
-  jamPortalGroup.position.set(JAM_PORTAL_POS.x, ph + 0.06, JAM_PORTAL_POS.z);
+  const ph = terrainHeightAt(EXTRACT_PORTAL_POS.x, EXTRACT_PORTAL_POS.z);
+  extractPortalGroup.position.set(EXTRACT_PORTAL_POS.x, ph + 0.06, EXTRACT_PORTAL_POS.z);
   const ringMat = new THREE.MeshStandardMaterial({
     color: 0x55ffd8,
     emissive: 0x1188aa,
@@ -471,37 +610,37 @@ const jamPortalGroup = new THREE.Group();
   const ring = new THREE.Mesh(new THREE.TorusGeometry(2.05, 0.32, 14, 48), ringMat);
   ring.rotation.x = Math.PI / 2;
   ring.castShadow = true;
-  jamPortalGroup.add(ring);
+  extractPortalGroup.add(ring);
   const ringInner = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.14, 10, 36), ringMat.clone());
   ringInner.rotation.x = Math.PI / 2;
   ringInner.material.emissiveIntensity = 1.8;
-  jamPortalGroup.add(ringInner);
+  extractPortalGroup.add(ringInner);
   const portalLight = new THREE.PointLight(0x88fff0, 2.8, 26, 1.45);
   portalLight.position.y = 0.55;
-  jamPortalGroup.add(portalLight);
-  const label = makePortalLabelSprite(["Vibe Jam Portal", "Behind the gate"]);
+  extractPortalGroup.add(portalLight);
+  const label = makePortalLabelSprite(["Extract", "Behind the gate"]);
   label.position.y = 4.35;
-  jamPortalGroup.add(label);
+  extractPortalGroup.add(label);
 }
-scene.add(jamPortalGroup);
-function syncJamPortalWorldHeight() {
-  const ph = terrainHeightAt(JAM_PORTAL_POS.x, JAM_PORTAL_POS.z);
-  jamPortalGroup.position.set(JAM_PORTAL_POS.x, ph + 0.06, JAM_PORTAL_POS.z);
+scene.add(extractPortalGroup);
+function syncExtractPortalWorldHeight() {
+  const ph = terrainHeightAt(EXTRACT_PORTAL_POS.x, EXTRACT_PORTAL_POS.z);
+  extractPortalGroup.position.set(EXTRACT_PORTAL_POS.x, ph + 0.06, EXTRACT_PORTAL_POS.z);
 }
 
 const zombieMat = new THREE.MeshStandardMaterial({
   color: 0x3cb356,
   roughness: 0.82,
   metalness: 0.04,
-  emissive: 0x0d2814,
-  emissiveIntensity: 0.12,
+  emissive: 0x000000,
+  emissiveIntensity: 0,
 });
 const bossZombieMat = new THREE.MeshStandardMaterial({
   color: 0x1a5030,
   roughness: 0.78,
   metalness: 0.08,
-  emissive: 0x020a06,
-  emissiveIntensity: 0.22,
+  emissive: 0x000000,
+  emissiveIntensity: 0,
 });
 const zombieEyes = new THREE.MeshBasicMaterial({
   color: 0xff2424,
@@ -544,23 +683,27 @@ const RAPID_FIRE_MAX_STACK = 22;
 const MAX_BLOOD_DECALS = 72;
 const PICKUP_PICK_RADIUS = 1.65;
 const MED_KIT_HEAL = 38;
-const FLASH_BAT_MAX = 120; // seconds
-const FLASH_BAT_PICKUP = 45; // seconds
-const FLASH_DRAIN_PER_SEC = 1.0;
+const FLASH_BAT_MAX = 180; // seconds of night use
+const FLASH_BAT_PICKUP = 55; // seconds
+const FLASH_DRAIN_PER_SEC = 0.42;
 const MELEE_RANGE = 2.85;
 const MELEE_CONE_DOT = 0.22;
-const MELEE_CD_SEC = 0.34;
+const MELEE_CD_SEC = 0.52;
 const MELEE_ZOMBIE_DAMAGE = 3.4;
+const MELEE_WIND = 0.22;
+const ARM_R_REST_X = -0.55;
+const ARM_R_REST_Z = -0.22;
 
 let gameTime = 0;
 let nightBlend = 0;
+let deepNightBlend = 0;
 let skyPhaseLabel = "Afternoon";
 
 const BOSS_WAVE_INTERVAL = 4;
 const BOSS_WAVE_FIRST = 3;
 
 /** @typedef {'pistol' | 'shotgun' | 'smg'} WeaponId */
-/** @typedef {'autoAim' | 'rapidFire' | 'weaponPistol' | 'weaponShotgun' | 'weaponSmg' | 'medKit' | 'fuelCell' | 'ammoPistol' | 'ammoShotgun' | 'ammoSmg' | 'gateKey' | 'battery'} PickupKind */
+/** @typedef {'autoAim' | 'rapidFire' | 'weaponPistol' | 'weaponShotgun' | 'weaponSmg' | 'medKit' | 'ammoPistol' | 'ammoShotgun' | 'ammoSmg' | 'gateKey' | 'battery'} PickupKind */
 /** @type {WeaponId} */
 let currentWeapon = "pistol";
 
@@ -584,9 +727,11 @@ let autoAimTime = 0;
 let rapidFireTime = 0;
 let ambientPickupTimer = 0;
 let flashlightOn = true;
-let flashlightBattery = FLASH_BAT_MAX * 0.72;
+let flashlightBattery = FLASH_BAT_MAX;
+let flashlightLowWarned = false;
 let meleeCd = 0;
 let meleeAnim = 0;
+let meleeHitArmed = false;
 /** @type {{ mesh: THREE.Group, bobPhase: number, kind: PickupKind }[]} */
 let pickups = [];
 /** @type {{ group: THREE.Group, t: number, flare: THREE.Mesh, flashLight: THREE.PointLight }[]} */
@@ -795,29 +940,40 @@ function pickSpawnPointAwayFrom(px, pz, minR, maxR) {
     const d = minR + Math.random() * (maxR - minR);
     const x = THREE.MathUtils.clamp(px + Math.cos(ang) * d, -WORLD_LIMIT + 4, WORLD_LIMIT - 4);
     const z = THREE.MathUtils.clamp(pz + Math.sin(ang) * d, -WORLD_LIMIT + 4, WORLD_LIMIT - 4);
-    if (Math.hypot(x - JAM_PORTAL_POS.x, z - JAM_PORTAL_POS.z) < 22) continue;
+    if (Math.hypot(x - EXTRACT_PORTAL_POS.x, z - EXTRACT_PORTAL_POS.z) < 22) continue;
     if (!isClearOfTrees(x, z, 1.4)) continue;
     return { x, z };
   }
   return { x: px + 18, z: pz };
 }
 
-function pickFuelSpawnPoint(px, pz, minR, maxR) {
-  for (let attempt = 0; attempt < 80; attempt++) {
-    const ang = Math.random() * Math.PI * 2;
-    const d = minR + Math.random() * (maxR - minR);
-    let x = px + Math.cos(ang) * d;
-    let z = pz + Math.sin(ang) * d;
-    x = THREE.MathUtils.clamp(x, -WORLD_LIMIT + 4, WORLD_LIMIT - 4);
-    z = THREE.MathUtils.clamp(z, -WORLD_LIMIT + 4, WORLD_LIMIT - 4);
-    if (x > GATE_LINE_X - 12) continue;
-    if (Math.hypot(x - JAM_PORTAL_POS.x, z - JAM_PORTAL_POS.z) < 14) continue;
-    if (!isClearOfTrees(x, z, 1.45)) continue;
+function pickExplorePoint(placed, minSep, minFromOrigin) {
+  const xMin = GATE_PASS_X + 22;
+  const xMax = WORLD_LIMIT - 18;
+  const zSpan = WORLD_LIMIT - 18;
+  for (let attempt = 0; attempt < 160; attempt++) {
+    const x = THREE.MathUtils.lerp(xMin, xMax, Math.random());
+    const z = THREE.MathUtils.lerp(-zSpan, zSpan, Math.random());
+    if (Math.hypot(x, z) < minFromOrigin) continue;
+    if (Math.hypot(x - EXTRACT_PORTAL_POS.x, z - EXTRACT_PORTAL_POS.z) < 28) continue;
+    if (!isClearOfTrees(x, z, 1.5)) continue;
+    if (placed.some((p) => Math.hypot(p.x - x, p.z - z) < minSep)) continue;
     return { x, z };
   }
-  const x = THREE.MathUtils.clamp(GATE_LINE_X - 38 - Math.random() * 62, -WORLD_LIMIT + 6, GATE_LINE_X - 14);
-  const z = THREE.MathUtils.clamp((Math.random() - 0.5) * 170, -WORLD_LIMIT + 8, WORLD_LIMIT - 8);
-  return { x, z };
+  return {
+    x: THREE.MathUtils.clamp(WORLD_LIMIT - 36 - placed.length * 28, xMin, xMax),
+    z: THREE.MathUtils.clamp((placed.length % 2 === 0 ? 1 : -1) * (140 + placed.length * 70), -zSpan, zSpan),
+  };
+}
+
+function spawnScatteredKeys() {
+  const placed = [];
+  const minSep = WORLD_LIMIT * 0.48;
+  for (let n = 0; n < KEYS_NEEDED; n++) {
+    const p = pickExplorePoint(placed, minSep, 85 + n * 40);
+    placed.push(p);
+    spawnPickup("gateKey", p.x, p.z, 0, true);
+  }
 }
 
 function playerLookForward(out = tmpV) {
@@ -1013,26 +1169,41 @@ function toggleFlashlight() {
 
 function initFlashlightForRun() {
   flashlightOn = true;
-  flashlightBattery = FLASH_BAT_MAX * 0.72;
+  flashlightBattery = FLASH_BAT_MAX;
+  flashlightLowWarned = false;
+}
+
+function flashlightPower() {
+  if (!flashlightOn) return 0;
+  const pct = THREE.MathUtils.clamp(flashlightBattery / FLASH_BAT_MAX, 0, 1);
+  if (pct >= 0.2) return 1;
+  return THREE.MathUtils.smoothstep(0.02, 0.2, pct);
 }
 
 function updateFlashlight(dt) {
   if (!playing || paused) return;
   if (!flashlightOn) return;
+  if (nightBlend < 0.12) return;
   flashlightBattery = Math.max(0, flashlightBattery - dt * FLASH_DRAIN_PER_SEC);
   if (flashlightBattery <= 0.001) {
     flashlightOn = false;
-    showToast("Battery dead", 1.4);
+    showToast("Battery dead — you are blind", 1.6);
+    return;
+  }
+  if (!flashlightLowWarned && flashlightBattery / FLASH_BAT_MAX <= 0.2) {
+    flashlightLowWarned = true;
+    showToast("Battery low", 1.2);
   }
 }
 
 function initAmmoForRun() {
-  ammoState.pistol.cur = 10;
-  ammoState.pistol.max = 18;
-  ammoState.shotgun.cur = 2;
-  ammoState.shotgun.max = 10;
-  ammoState.smg.cur = 0;
-  ammoState.smg.max = 48;
+  const d = diffCfg();
+  ammoState.pistol.cur = d.pistolStart[0];
+  ammoState.pistol.max = d.pistolStart[1];
+  ammoState.shotgun.cur = d.shotgunStart[0];
+  ammoState.shotgun.max = d.shotgunStart[1];
+  ammoState.smg.cur = d.smgStart[0];
+  ammoState.smg.max = d.smgStart[1];
 }
 
 function currentAmmoString() {
@@ -1057,30 +1228,8 @@ function addAmmo(weapon, amount) {
   a.cur = Math.min(a.max, a.cur + amount);
 }
 
-function removeFuelPickupsFromScene() {
-  for (let i = pickups.length - 1; i >= 0; i--) {
-    if (pickups[i].kind === "fuelCell") {
-      scene.remove(pickups[i].mesh);
-      pickups.splice(i, 1);
-    }
-  }
-}
-
-function spawnObjectiveFuelCells() {
-  removeFuelPickupsFromScene();
-  const px = playerGroup.position.x;
-  const pz = playerGroup.position.z;
-  for (let n = 0; n < EXTRACT_FUEL_NEEDED; n++) {
-    const { x, z } = pickFuelSpawnPoint(px, pz, 40 + n * 16, 95 + n * 22);
-    spawnPickup("fuelCell", x, z, 0);
-  }
-}
-
 function spawnGateKeyPickup() {
-  if (pickups.some((p) => p.kind === "gateKey")) return;
-  const kx = THREE.MathUtils.clamp(GATE_LINE_X + 26 + Math.random() * 40, GATE_LINE_X + 14, WORLD_LIMIT - 12);
-  const kz = THREE.MathUtils.clamp((Math.random() - 0.5) * 140, -WORLD_LIMIT + 10, WORLD_LIMIT - 10);
-  spawnPickup("gateKey", kx, kz, 0);
+  spawnScatteredKeys();
 }
 
 function currentFireCd() {
@@ -1098,7 +1247,7 @@ function weaponHudLabel() {
 
 /** @param {PickupKind} kind */
 function spawnPickup(kind, nearX, nearZ, spread = 14, force = false) {
-  if (!force && pickups.length >= 22) return;
+  if (!force && pickups.length >= diffCfg().pickupMax) return;
   let x;
   let z;
   if (spread <= 0) {
@@ -1157,19 +1306,6 @@ function spawnPickup(kind, nearX, nearZ, spread = 14, force = false) {
     const c2 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.12, 0.12), medKitCrossMat);
     c2.position.y = 0.02;
     mesh.add(c2);
-  } else if (kind === "fuelCell") {
-    const can = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, 0.5, 10), fuelCellMat);
-    can.castShadow = true;
-    mesh.add(can);
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), fuelCellMat);
-    cap.position.y = 0.32;
-    mesh.add(cap);
-    const glow = new THREE.Mesh(
-      new THREE.TorusGeometry(0.45, 0.04, 6, 20),
-      new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.45, depthWrite: false })
-    );
-    glow.rotation.x = Math.PI / 2;
-    mesh.add(glow);
   } else if (kind === "ammoPistol") {
     const box = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.28, 0.32), ammoBoxMat);
     box.castShadow = true;
@@ -1249,20 +1385,32 @@ function spawnPickup(kind, nearX, nearZ, spread = 14, force = false) {
 
 function randomPickupKind() {
   const r = Math.random();
+  if (isCasual()) {
+    if (r < 0.2) return "ammoPistol";
+    if (r < 0.32) return "ammoShotgun";
+    if (r < 0.42) return "ammoSmg";
+    if (r < 0.5) return "rapidFire";
+    if (r < 0.58) return "autoAim";
+    if (r < 0.66) return "medKit";
+    if (r < 0.74) return "battery";
+    if (r < 0.82) return "weaponShotgun";
+    if (r < 0.9) return "weaponSmg";
+    return "weaponPistol";
+  }
   if (r < 0.09) return "ammoPistol";
   if (r < 0.14) return "ammoShotgun";
   if (r < 0.18) return "ammoSmg";
   if (r < 0.26) return "battery";
   if (r < 0.34) return "medKit";
-  if (r < 0.40) return "autoAim";
+  if (r < 0.4) return "autoAim";
   if (r < 0.46) return "rapidFire";
-  if (r < 0.50) return "weaponShotgun";
+  if (r < 0.5) return "weaponShotgun";
   if (r < 0.54) return "weaponSmg";
   return "weaponPistol";
 }
 
 function maybeDropPickupFromKill(zx, zz) {
-  if (Math.random() > 0.09) return;
+  if (Math.random() > diffCfg().killDropChance) return;
   spawnPickup(randomPickupKind(), zx, zz, 10);
 }
 
@@ -1288,17 +1436,24 @@ function updatePickups(dt) {
       } else if (p.kind === "medKit") {
         playerHp = Math.min(100, playerHp + MED_KIT_HEAL);
       } else if (p.kind === "gateKey") {
-        gateUnlocked = true;
-        showToast("West gate unlocked — the compound is open", 2.5);
-      } else if (p.kind === "fuelCell") {
-        extractFuelCollected = Math.min(EXTRACT_FUEL_NEEDED, extractFuelCollected + 1);
-        showToast(`Fuel ${extractFuelCollected}/${EXTRACT_FUEL_NEEDED}`, 1.35);
+        keysCollected = Math.min(KEYS_NEEDED, keysCollected + 1);
+        const keyQueue = Math.round((2 + keysCollected * 2) * diffCfg().keySpawnQueueMul);
+        spawnQueue += Math.max(1, keyQueue);
+        if (keysCollected >= KEYS_NEEDED) {
+          gateUnlocked = true;
+          showToast("All keys — west gate is open. The woods go feral.", 2.8);
+        } else {
+          showToast(`Key ${keysCollected}/${KEYS_NEEDED} — nights get worse`, 1.8);
+        }
+        if (isNightHorde() && hordeEverStarted) {
+          spawnDelay = Math.min(spawnDelay, 0.08);
+        }
       } else if (p.kind === "ammoPistol") {
-        addAmmo("pistol", 6);
+        addAmmo("pistol", diffCfg().ammoPickup.pistol);
       } else if (p.kind === "ammoShotgun") {
-        addAmmo("shotgun", 2);
+        addAmmo("shotgun", diffCfg().ammoPickup.shotgun);
       } else if (p.kind === "ammoSmg") {
-        addAmmo("smg", 8);
+        addAmmo("smg", diffCfg().ammoPickup.smg);
       } else if (p.kind === "battery") {
         flashlightBattery = Math.min(FLASH_BAT_MAX, flashlightBattery + FLASH_BAT_PICKUP);
         if (!flashlightOn && flashlightBattery > 0.05) flashlightOn = true;
@@ -1313,6 +1468,7 @@ function updatePickups(dt) {
 }
 
 const barrelsGroup = new THREE.Group();
+scene.add(barrelsGroup);
 /** @type {{ mesh: THREE.Mesh, band: THREE.Mesh, x: number, z: number, collider: { x: number, z: number, r: number }, broken: boolean }[]} */
 const barrels = [];
 const barrelMat = new THREE.MeshStandardMaterial({ color: 0x3a2c22, roughness: 0.85, metalness: 0.06 });
@@ -1323,19 +1479,77 @@ const barrelBandMat = new THREE.MeshStandardMaterial({
   emissive: 0x080808,
   emissiveIntensity: 0.15,
 });
-for (let i = 0; i < 28; i++) {
-  const x = THREE.MathUtils.clamp((Math.random() - 0.5) * (WORLD_LIMIT * 1.75), -WORLD_LIMIT + 10, WORLD_LIMIT - 10);
-  const z = THREE.MathUtils.clamp((Math.random() - 0.5) * (WORLD_LIMIT * 1.75), -WORLD_LIMIT + 10, WORLD_LIMIT - 10);
-  if (x * x + z * z < 520) continue;
-  if (Math.hypot(x - JAM_PORTAL_POS.x, z - JAM_PORTAL_POS.z) < 26) continue;
-  if (x > GATE_LINE_X - 4 && x < GATE_LINE_X + 6 && Math.abs(z) < 58) continue;
-  if (!isClearOfTrees(x, z, 2.15)) continue;
+const barrelBodyGeo = new THREE.CylinderGeometry(0.62, 0.62, 1.05, 14);
+const barrelBandGeo = new THREE.TorusGeometry(0.62, 0.05, 6, 20);
+const BARREL_TARGET = 26;
+const BARREL_MIN_SEP = 22;
+const BARREL_FORGET_DIST = 72;
+const BARREL_PLAYER_CLEAR = 88;
+const BARREL_RESPAWN_MIN = 4;
+const BARREL_RESPAWN_MAX = 10;
+/** @type {{ x: number, z: number }[]} */
+const recentBarrelSpots = [];
+/** @type {{ t: number, avoid: { x: number, z: number } }[]} */
+const barrelRespawnQueue = [];
+
+function rememberBrokenBarrelSpot(x, z) {
+  recentBarrelSpots.push({ x, z });
+  if (recentBarrelSpots.length > 80) recentBarrelSpots.shift();
+}
+
+function barrelSpotBlocked(x, z, extraAvoid) {
+  if (x * x + z * z < 900) return true;
+  if (Math.hypot(x - EXTRACT_PORTAL_POS.x, z - EXTRACT_PORTAL_POS.z) < 26) return true;
+  if (x > GATE_LINE_X - 4 && x < GATE_LINE_X + 6 && Math.abs(z) < 58) return true;
+  if (!isClearOfTrees(x, z, 2.15)) return true;
+  if (playing) {
+    if (Math.hypot(x - playerGroup.position.x, z - playerGroup.position.z) < BARREL_PLAYER_CLEAR) return true;
+  }
+  for (const b of barrels) {
+    if (Math.hypot(b.x - x, b.z - z) < BARREL_MIN_SEP) return true;
+  }
+  for (const p of recentBarrelSpots) {
+    if (Math.hypot(p.x - x, p.z - z) < BARREL_FORGET_DIST) return true;
+  }
+  if (extraAvoid && Math.hypot(extraAvoid.x - x, extraAvoid.z - z) < BARREL_FORGET_DIST) return true;
+  return false;
+}
+
+function pickRandomBarrelSpot(extraAvoid = null) {
+  const px = playing ? playerGroup.position.x : 0;
+  const pz = playing ? playerGroup.position.z : 0;
+  for (let i = 0; i < 110; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const d = BARREL_PLAYER_CLEAR + 12 + Math.random() * 240;
+    const x = THREE.MathUtils.clamp(px + Math.cos(ang) * d, -WORLD_LIMIT + 12, WORLD_LIMIT - 12);
+    const z = THREE.MathUtils.clamp(pz + Math.sin(ang) * d, -WORLD_LIMIT + 12, WORLD_LIMIT - 12);
+    if (barrelSpotBlocked(x, z, extraAvoid)) continue;
+    return { x, z };
+  }
+  for (let i = 0; i < 80; i++) {
+    const x = THREE.MathUtils.clamp(
+      (Math.random() - 0.5) * WORLD_LIMIT * 1.85,
+      -WORLD_LIMIT + 12,
+      WORLD_LIMIT - 12
+    );
+    const z = THREE.MathUtils.clamp(
+      (Math.random() - 0.5) * WORLD_LIMIT * 1.85,
+      -WORLD_LIMIT + 12,
+      WORLD_LIMIT - 12
+    );
+    if (barrelSpotBlocked(x, z, extraAvoid)) continue;
+    return { x, z };
+  }
+  return null;
+}
+
+function spawnBarrelAt(x, z) {
   const y = terrainHeightAt(x, z);
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 1.05, 14), barrelMat);
+  const m = new THREE.Mesh(barrelBodyGeo, barrelMat);
   m.position.set(x, y + 0.52, z);
   m.castShadow = true;
   m.receiveShadow = true;
-  const band = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.05, 6, 20), barrelBandMat);
+  const band = new THREE.Mesh(barrelBandGeo, barrelBandMat);
   band.rotation.x = Math.PI / 2;
   band.position.copy(m.position);
   band.position.y += 0.12;
@@ -1346,35 +1560,38 @@ for (let i = 0; i < 28; i++) {
   barrels.push({ mesh: m, band, x, z, collider: c, broken: false });
 }
 
-function placeBarrel(x, z) {
-  if (!isClearOfTrees(x, z, 2.15)) return;
-  const y = terrainHeightAt(x, z);
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 1.05, 14), barrelMat);
-  m.position.set(x, y + 0.52, z);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  const band = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.05, 6, 20), barrelBandMat);
-  band.rotation.x = Math.PI / 2;
-  band.position.copy(m.position);
-  band.position.y += 0.12;
-  barrelsGroup.add(m);
-  barrelsGroup.add(band);
-  const c = { x, z, r: 1.35 };
-  treeColliders.push(c);
-  barrels.push({ mesh: m, band, x, z, collider: c, broken: false });
+function trySpawnBarrel(extraAvoid = null) {
+  const p = pickRandomBarrelSpot(extraAvoid);
+  if (!p) return false;
+  spawnBarrelAt(p.x, p.z);
+  return true;
 }
 
-placeBarrel(6.5, 5.2);
-placeBarrel(-7.4, 8.1);
-placeBarrel(4.8, -9.4);
-placeBarrel(-5.6, -6.8);
-scene.add(barrelsGroup);
+function clearBarrels() {
+  for (const b of barrels) {
+    b.mesh.parent?.remove(b.mesh);
+    b.band.parent?.remove(b.band);
+    const i = treeColliders.indexOf(b.collider);
+    if (i >= 0) treeColliders.splice(i, 1);
+  }
+  barrels.length = 0;
+  barrelRespawnQueue.length = 0;
+  recentBarrelSpots.length = 0;
+}
+
+function seedBarrels() {
+  clearBarrels();
+  let guard = 0;
+  while (barrels.length < BARREL_TARGET && guard++ < 500) {
+    trySpawnBarrel(null);
+  }
+}
 
 function maybeBarrelDropKind() {
   const r = Math.random();
   if (r < 0.34) return "battery";
   if (r < 0.58) return "ammoPistol";
-  if (r < 0.70) return "ammoShotgun";
+  if (r < 0.7) return "ammoShotgun";
   if (r < 0.82) return "ammoSmg";
   return "medKit";
 }
@@ -1382,25 +1599,42 @@ function maybeBarrelDropKind() {
 function breakBarrel(b) {
   if (b.broken) return false;
   b.broken = true;
-  b.collider.r = 0;
+  const avoid = { x: b.x, z: b.z };
+  const ci = treeColliders.indexOf(b.collider);
+  if (ci >= 0) treeColliders.splice(ci, 1);
   b.mesh.parent?.remove(b.mesh);
   b.band.parent?.remove(b.band);
-  spawnPickup(maybeBarrelDropKind(), b.x, b.z, 0, true);
-  spawnBloodDecal(b.x, b.z);
+  const bi = barrels.indexOf(b);
+  if (bi >= 0) barrels.splice(bi, 1);
+  spawnPickup(maybeBarrelDropKind(), avoid.x, avoid.z, 0, true);
+  rememberBrokenBarrelSpot(avoid.x, avoid.z);
+  barrelRespawnQueue.push({
+    t: BARREL_RESPAWN_MIN + Math.random() * (BARREL_RESPAWN_MAX - BARREL_RESPAWN_MIN),
+    avoid,
+  });
   return true;
 }
 
-function tryMelee() {
-  if (!playing || introCameraActive || paused) return;
-  if (meleeCd > 0) return;
-  meleeCd = MELEE_CD_SEC;
-  meleeAnim = 1;
+function updateBarrels(dt) {
+  if (!playing || paused) return;
+  for (let i = barrelRespawnQueue.length - 1; i >= 0; i--) {
+    barrelRespawnQueue[i].t -= dt;
+    if (barrelRespawnQueue[i].t > 0) continue;
+    const job = barrelRespawnQueue.splice(i, 1)[0];
+    if (!trySpawnBarrel(job.avoid)) {
+      barrelRespawnQueue.push({ t: 2.2 + Math.random() * 2, avoid: job.avoid });
+    }
+  }
+}
+
+seedBarrels();
+
+function resolveMeleeHit() {
   const px = playerGroup.position.x;
   const pz = playerGroup.position.z;
   playerLookForward(tmpV);
   const fx = tmpV.x;
   const fz = tmpV.z;
-  let hit = false;
 
   for (const b of barrels) {
     if (b.broken) continue;
@@ -1411,40 +1645,98 @@ function tryMelee() {
     const toward = (dx / dist) * fx + (dz / dist) * fz;
     if (toward < MELEE_CONE_DOT && dist > 1.35) continue;
     if (breakBarrel(b)) {
-      hit = true;
       showToast("Barrel smashed", 0.9);
-      break;
+      return;
     }
   }
 
-  if (!hit) {
-    for (let j = zombies.length - 1; j >= 0; j--) {
-      const z = zombies[j];
-      const dx = z.mesh.position.x - px;
-      const dz = z.mesh.position.z - pz;
-      const dist = Math.hypot(dx, dz);
-      const reach = MELEE_RANGE + (z.isBoss ? 0.45 : 0);
-      if (dist > reach || dist < 1e-6) continue;
-      const toward = (dx / dist) * fx + (dz / dist) * fz;
-      if (toward < MELEE_CONE_DOT) continue;
-      z.hp -= z.isBoss ? MELEE_ZOMBIE_DAMAGE * 0.72 : MELEE_ZOMBIE_DAMAGE;
-      z.mesh.position.x += fx * 1.15;
-      z.mesh.position.z += fz * 1.15;
-      hit = true;
-      if (z.hp <= 0) {
-        spawnBloodDecal(z.mesh.position.x, z.mesh.position.z);
-        maybeDropPickupFromKill(z.mesh.position.x, z.mesh.position.z);
-        scene.remove(z.mesh);
-        zombies.splice(j, 1);
-        kills += 1;
-        showToast("Melee kill", 0.85);
-      } else {
-        spawnBloodDecal(z.mesh.position.x, z.mesh.position.z);
-        showToast("Melee hit", 0.7);
-      }
-      break;
+  for (let j = zombies.length - 1; j >= 0; j--) {
+    const z = zombies[j];
+    const dx = z.mesh.position.x - px;
+    const dz = z.mesh.position.z - pz;
+    const dist = Math.hypot(dx, dz);
+    const reach = MELEE_RANGE + (z.isBoss ? 0.45 : 0);
+    if (dist > reach || dist < 1e-6) continue;
+    const toward = (dx / dist) * fx + (dz / dist) * fz;
+    if (toward < MELEE_CONE_DOT) continue;
+    z.hp -= z.isBoss ? MELEE_ZOMBIE_DAMAGE * 0.72 : MELEE_ZOMBIE_DAMAGE;
+    z.mesh.position.x += fx * 1.35;
+    z.mesh.position.z += fz * 1.35;
+    if (z.hp <= 0) {
+      spawnBloodDecal(z.mesh.position.x, z.mesh.position.z);
+      maybeDropPickupFromKill(z.mesh.position.x, z.mesh.position.z);
+      scene.remove(z.mesh);
+      zombies.splice(j, 1);
+      kills += 1;
+      showToast("Melee kill", 0.85);
+    } else {
+      spawnBloodDecal(z.mesh.position.x, z.mesh.position.z);
+      showToast("Melee hit", 0.7);
     }
+    return;
   }
+}
+
+function meleeCamRoll() {
+  if (meleeAnim <= 0) return 0;
+  const k = 1 - meleeAnim;
+  if (k < MELEE_WIND) return -k * 0.08;
+  if (k < 0.42) return THREE.MathUtils.lerp(-0.08, 0.22, (k - MELEE_WIND) / 0.2);
+  return THREE.MathUtils.lerp(0.22, 0, (k - 0.42) / 0.58);
+}
+
+function applyMeleePose(dt) {
+  const fp = cameraPerson === "first";
+  if (meleeAnim <= 0) {
+    playerArmR.position.set(0.28, 1.34, 0);
+    playerArmR.rotation.set(ARM_R_REST_X, 0, ARM_R_REST_Z);
+    playerTorso.rotation.y = 0;
+    if (fp) playerArmR.visible = false;
+    return;
+  }
+  const prev = meleeAnim;
+  meleeAnim = Math.max(0, meleeAnim - dt / 0.5);
+  if (meleeHitArmed && prev >= 0.68 && meleeAnim < 0.68) {
+    meleeHitArmed = false;
+    resolveMeleeHit();
+  }
+  const k = 1 - meleeAnim;
+  if (fp) {
+    playerArmR.position.set(0.38, 1.5, 0.32);
+  } else {
+    playerArmR.position.set(0.28, 1.34, 0);
+  }
+  if (k < MELEE_WIND) {
+    const w = k / MELEE_WIND;
+    const e = w * w;
+    playerArmR.rotation.x = ARM_R_REST_X - e * (fp ? 1.55 : 1.25);
+    playerArmR.rotation.y = -e * (fp ? 1.15 : 0.85);
+    playerArmR.rotation.z = ARM_R_REST_Z + e * (fp ? 0.85 : 0.55);
+    playerTorso.rotation.y = -e * 0.55;
+  } else if (k < 0.42) {
+    const w = (k - MELEE_WIND) / 0.2;
+    const e = w * w * (3 - 2 * w);
+    playerArmR.rotation.x = ARM_R_REST_X - (fp ? 1.55 : 1.25) + e * (fp ? 3.05 : 2.55);
+    playerArmR.rotation.y = -(fp ? 1.15 : 0.85) + e * (fp ? 2.05 : 1.55);
+    playerArmR.rotation.z = ARM_R_REST_Z + (fp ? 0.85 : 0.55) - e * (fp ? 1.35 : 0.95);
+    playerTorso.rotation.y = -0.55 + e * 1.35;
+  } else {
+    const w = THREE.MathUtils.clamp((k - 0.42) / 0.58, 0, 1);
+    const e = 1 - (1 - w) * (1 - w);
+    playerArmR.rotation.x = THREE.MathUtils.lerp(fp ? 1.5 : 1.3, ARM_R_REST_X, e);
+    playerArmR.rotation.y = THREE.MathUtils.lerp(fp ? 0.9 : 0.7, 0, e);
+    playerArmR.rotation.z = THREE.MathUtils.lerp(ARM_R_REST_Z - (fp ? 0.55 : 0.4), ARM_R_REST_Z, e);
+    playerTorso.rotation.y = THREE.MathUtils.lerp(0.8, 0, e);
+  }
+  if (fp) playerArmR.visible = meleeAnim > 0.02;
+}
+
+function tryMelee() {
+  if (!playing || introCameraActive || paused) return;
+  if (meleeCd > 0) return;
+  meleeCd = MELEE_CD_SEC;
+  meleeAnim = 1;
+  meleeHitArmed = true;
 }
 
 function buildZombieGroup(isBoss) {
@@ -1453,62 +1745,121 @@ function buildZombieGroup(isBoss) {
     mat = bossZombieMat;
   } else {
     mat = zombieMat.clone();
-    const hue = 0.2 + Math.random() * 0.16;
-    const sat = 0.32 + Math.random() * 0.38;
-    const light = 0.24 + Math.random() * 0.2;
+    const hue = 0.18 + Math.random() * 0.14;
+    const sat = 0.28 + Math.random() * 0.32;
+    const light = 0.22 + Math.random() * 0.18;
     mat.color.setHSL(hue, sat, light);
-    mat.emissive.setHSL(hue, 0.45, 0.04 + Math.random() * 0.08);
+    mat.emissive.setHSL(hue, 0.4, 0.04 + Math.random() * 0.06);
   }
+  const cloth = mat.clone();
+  cloth.color.multiplyScalar(0.72);
   const g = new THREE.Group();
   if (isBoss) {
-    g.scale.setScalar(1.55);
+    g.scale.setScalar(1.42);
   }
 
-  const legGeom = new THREE.CylinderGeometry(0.088, 0.07, 0.46, 5);
+  const rad = GEO_RAD;
+  const cap = GEO_CAP;
+
   const legL = new THREE.Group();
-  legL.position.set(-0.15, 0.5, 0);
-  const legLm = new THREE.Mesh(legGeom, mat);
-  legLm.position.y = -0.21;
-  legLm.castShadow = true;
-  legL.add(legLm);
+  legL.position.set(-0.12, 0.88, 0.02);
+  const thighL = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.26, cap, rad), mat);
+  thighL.position.y = -0.18;
+  thighL.castShadow = true;
+  legL.add(thighL);
+  const shinL = new THREE.Mesh(new THREE.CapsuleGeometry(0.058, 0.24, cap, rad), mat);
+  shinL.position.set(0.01, -0.48, 0.04);
+  shinL.rotation.x = 0.12;
+  shinL.castShadow = true;
+  legL.add(shinL);
   g.add(legL);
+
   const legR = new THREE.Group();
-  legR.position.set(0.15, 0.5, 0);
-  const legRm = new THREE.Mesh(legGeom.clone(), mat);
-  legRm.position.y = -0.21;
-  legRm.castShadow = true;
-  legR.add(legRm);
+  legR.position.set(0.12, 0.88, -0.02);
+  const thighR = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.26, cap, rad), mat);
+  thighR.position.y = -0.18;
+  thighR.castShadow = true;
+  legR.add(thighR);
+  const shinR = new THREE.Mesh(new THREE.CapsuleGeometry(0.058, 0.24, cap, rad), mat);
+  shinR.position.set(-0.01, -0.48, 0.02);
+  shinR.rotation.x = -0.08;
+  shinR.castShadow = true;
+  legR.add(shinR);
   g.add(legR);
 
   const torso = new THREE.Group();
+  torso.rotation.x = 0.18;
   g.add(torso);
 
-  const zBody = new THREE.Mesh(new THREE.DodecahedronGeometry(0.44, 0), mat);
-  zBody.scale.set(1.05, 1.35, 0.95);
-  zBody.position.y = 0.82;
+  const zBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.38, cap, rad), cloth);
+  zBody.position.y = 1.16;
   zBody.castShadow = true;
+  zBody.receiveShadow = true;
   torso.add(zBody);
-  const head = new THREE.Mesh(new THREE.TetrahedronGeometry(0.42, 0), mat);
-  head.position.y = 1.48;
-  head.rotation.z = Math.PI;
-  head.scale.set(1.05, 1.2, 1.05);
+
+  const armL = new THREE.Group();
+  armL.position.set(-0.26, 1.32, 0.04);
+  armL.rotation.z = 0.35;
+  armL.rotation.x = 0.4;
+  const upperL = new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.2, cap, rad), cloth);
+  upperL.position.y = -0.14;
+  upperL.castShadow = true;
+  armL.add(upperL);
+  const lowerL = new THREE.Mesh(new THREE.CapsuleGeometry(0.042, 0.22, cap, rad), mat);
+  lowerL.position.y = -0.38;
+  lowerL.castShadow = true;
+  armL.add(lowerL);
+  torso.add(armL);
+
+  const armR = new THREE.Group();
+  armR.position.set(0.26, 1.3, 0.02);
+  armR.rotation.z = -0.28;
+  armR.rotation.x = -0.55;
+  const upperR = new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.2, cap, rad), cloth);
+  upperR.position.y = -0.14;
+  upperR.castShadow = true;
+  armR.add(upperR);
+  const lowerR = new THREE.Mesh(new THREE.CapsuleGeometry(0.042, 0.22, cap, rad), mat);
+  lowerR.position.y = -0.38;
+  lowerR.castShadow = true;
+  armR.add(lowerR);
+  torso.add(armR);
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.1, rad), mat);
+  neck.position.y = 1.4;
+  torso.add(neck);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, rad + 2, rad), mat);
+  head.scale.set(0.95, 1.12, 1.05);
+  head.position.set(0.02, 1.56, 0.06);
+  head.rotation.x = 0.2;
   head.castShadow = true;
   torso.add(head);
-  const le = new THREE.Mesh(new THREE.OctahedronGeometry(0.07, 0), zombieEyes);
-  le.position.set(-0.12, 1.5, 0.34);
+
+  const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.1), mat);
+  jaw.position.set(0.02, 1.46, 0.14);
+  jaw.rotation.x = 0.35;
+  torso.add(jaw);
+
+  const le = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), zombieEyes);
+  le.position.set(-0.06, 1.6, 0.16);
   torso.add(le);
-  const re = new THREE.Mesh(new THREE.OctahedronGeometry(0.07, 0), zombieEyes);
-  re.position.set(0.12, 1.5, 0.34);
+  const re = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), zombieEyes);
+  re.position.set(0.08, 1.6, 0.15);
   torso.add(re);
+
   if (isBoss) {
-    const horn = new THREE.Mesh(new THREE.TetrahedronGeometry(0.18, 0), mat);
-    horn.position.set(0, 1.95, 0);
-    horn.rotation.set(-0.3, 0, 0.2);
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.22, 8), mat);
+    horn.position.set(0, 1.82, 0.02);
+    horn.rotation.x = -0.4;
     horn.castShadow = true;
     torso.add(horn);
+    const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.12, rad, 8), cloth);
+    shoulder.position.set(0.22, 1.38, -0.02);
+    torso.add(shoulder);
   }
 
-  g.userData.rig = { legL, legR, torso };
+  g.userData.rig = { legL, legR, torso, armL, armR };
   g.userData.walkPhase = Math.random() * Math.PI * 2;
   g.userData.walkJitter = Math.random() * Math.PI * 2;
   return g;
@@ -1534,17 +1885,19 @@ function spawnZombie() {
   g.rotation.z = tilt;
   scene.add(g);
 
-  const hp = 6 + Math.floor(wave * 1.75) + Math.floor(wave / 2);
-  const speed = 2.55 + wave * 0.18 + Math.random() * 0.35;
+  const k = keysCollected;
+  const d = diffCfg();
+  const hp = Math.max(3, Math.round((6 + Math.floor(wave * 1.75) + Math.floor(wave / 2) + k * 4) * d.zombieHpMul));
+  const speed = (2.55 + wave * 0.18 + k * 0.45 + Math.random() * 0.35) * d.zombieSpeedMul;
   zombies.push({
     mesh: g,
     hp,
     speed,
     touchCd: 0,
     isBoss: false,
-    hitRadius: 0.75,
-    hitY: 1.05,
-    dmgPlayer: 10,
+    hitRadius: 0.72,
+    hitY: 1.12,
+    dmgPlayer: Math.max(4, Math.round((10 + k * 2) * d.zombieDmgMul)),
   });
 }
 
@@ -1564,8 +1917,10 @@ function spawnBoss() {
   const g = buildZombieGroup(true);
   g.position.set(x, 0, z);
   scene.add(g);
-  const hp = 52 + wave * 14;
-  const speed = 2.0 + wave * 0.1;
+  const k = keysCollected;
+  const d = diffCfg();
+  const hp = Math.max(20, Math.round((52 + wave * 14 + k * 18) * d.zombieHpMul));
+  const speed = (2.0 + wave * 0.1 + k * 0.22) * d.zombieSpeedMul;
   zombies.push({
     mesh: g,
     hp,
@@ -1573,18 +1928,17 @@ function spawnBoss() {
     touchCd: 0,
     isBoss: true,
     hitRadius: 1.12,
-    hitY: 1.12,
-    dmgPlayer: 18,
+    hitY: 1.22,
+    dmgPlayer: Math.max(8, Math.round((18 + k * 3) * d.zombieDmgMul)),
   });
 }
 
 function zombiesForWave(w) {
-  return 1 + Math.floor(w * 0.72);
+  return Math.max(2, Math.round((2 + Math.floor(w * 0.85) + keysCollected * 3) * diffCfg().zombieWaveMul));
 }
 
 function applyCharacterFromForm() {
   if (!el.playerColor || !body.material) return;
-  playerDisplayName = el.playerName?.value?.trim() || "Survivor";
   playerMoveSpeed = parseFloat(el.playerSpeed?.value);
   if (!Number.isFinite(playerMoveSpeed)) playerMoveSpeed = 11;
   playerMoveSpeed = THREE.MathUtils.clamp(playerMoveSpeed, 6, 18);
@@ -1596,9 +1950,9 @@ function applyCharacterFromForm() {
 
 function readCameraPersonPref() {
   try {
-    return localStorage.getItem(CAM_PREF_KEY) === "first" ? "first" : "third";
+    return localStorage.getItem(CAM_PREF_KEY) === "third" ? "third" : "first";
   } catch {
-    return "third";
+    return "first";
   }
 }
 
@@ -1618,8 +1972,12 @@ function syncCameraFovAndRig() {
   // Instead hide only the player meshes that would block the camera.
   playerRig.visible = true;
   body.visible = !fp;
+  playerHead.visible = !fp;
+  playerArmL.visible = !fp;
+  playerArmR.visible = !fp;
   playerLegL.visible = !fp;
   playerLegR.visible = !fp;
+  playerCollar.visible = !fp;
 }
 
 function syncPauseRadiosFromGame() {
@@ -1665,7 +2023,7 @@ function snapGameplayCamera() {
     camera.rotation.order = "YXZ";
     camera.rotation.y = cameraYaw;
     camera.rotation.x = lookPitch;
-    camera.rotation.z = 0;
+    camera.rotation.z = meleeCamRoll();
   } else {
     computeThirdPersonCameraPosition(thirdCamPos, camLookTmp);
     camera.position.copy(thirdCamPos);
@@ -1674,82 +2032,88 @@ function snapGameplayCamera() {
 }
 
 function menuDefaults() {
-  if (el.playerName) el.playerName.value = "Survivor";
   if (el.playerColor) el.playerColor.value = "#5a7ec8";
   if (el.playerSpeed) el.playerSpeed.value = "11";
   if (el.playerSpeedVal) el.playerSpeedVal.textContent = "11";
   applyCharacterFromForm();
 }
 
-function redirectToJamPortal() {
-  const name = el.playerName?.value?.trim() || playerDisplayName || "Survivor";
-  const hexRaw = el.playerColor?.value || "#" + body.material.color.getHexString();
-  const colorParam = hexRaw.replace(/^#/, "");
-  const refUrl = window.location.href.split("#")[0];
-  const url = new URL("https://jam.pieter.com/portal/2026");
-  url.searchParams.set("username", name);
-  url.searchParams.set("color", colorParam);
-  url.searchParams.set("speed", String(playerMoveSpeed));
-  url.searchParams.set("ref", refUrl);
-  window.location.href = url.toString();
+function readDifficultyFromLauncher() {
+  gameDifficulty = el.diffCasual?.checked ? "casual" : "survival";
+  try {
+    localStorage.setItem(DIFF_PREF_KEY, gameDifficulty);
+  } catch {
+    /* ignore */
+  }
+  syncDifficultyDesc();
 }
 
-function checkJamPortalEntry() {
-  const dx = playerGroup.position.x - JAM_PORTAL_POS.x;
-  const dz = playerGroup.position.z - JAM_PORTAL_POS.z;
-  if (dx * dx + dz * dz < JAM_PORTAL_POS.enterRadius * JAM_PORTAL_POS.enterRadius) {
+function loadDifficultyPref() {
+  try {
+    const v = localStorage.getItem(DIFF_PREF_KEY);
+    if (v === "casual" || v === "survival") gameDifficulty = v;
+  } catch {
+    /* ignore */
+  }
+  syncDifficultyRadiosFromGame();
+}
+
+function syncDifficultyRadiosFromGame() {
+  if (el.diffCasual) el.diffCasual.checked = gameDifficulty === "casual";
+  if (el.diffSurvival) el.diffSurvival.checked = gameDifficulty === "survival";
+  syncDifficultyDesc();
+}
+
+function syncDifficultyDesc() {
+  if (!el.diffDesc) return;
+  el.diffDesc.textContent = isCasual()
+    ? "Casual: generous ammo, frequent drops, softer hits — hordes lean into action."
+    : "Survival: scarce ammo, brutal nights, keys make each wave worse.";
+}
+
+function endRun(title, stats) {
+  playing = false;
+  paused = false;
+  if (el.pauseOverlay) el.pauseOverlay.classList.remove("visible");
+  document.exitPointerLock?.();
+  if (el.gameOverTitle) el.gameOverTitle.textContent = title;
+  el.gameOverStats.textContent = stats;
+  el.gameOverOverlay.classList.add("visible");
+  syncTouchUi();
+}
+
+function gameOver() {
+  endRun(
+    "That run’s over",
+    `${difficultyLabel()} — wave ${wave}, ${kills} kills. ${isCasual() ? "Reload for another action run." : "Not bad — next run can go further."}`
+  );
+}
+
+function winExtract() {
+  endRun(
+    "You extracted",
+    `${difficultyLabel()} — out on wave ${wave} with ${kills} kills.`
+  );
+}
+
+function checkExtractPortalEntry() {
+  const dx = playerGroup.position.x - EXTRACT_PORTAL_POS.x;
+  const dz = playerGroup.position.z - EXTRACT_PORTAL_POS.z;
+  if (dx * dx + dz * dz < EXTRACT_PORTAL_POS.enterRadius * EXTRACT_PORTAL_POS.enterRadius) {
     if (!gateUnlocked) {
-      showToast("Find the gate key — the portal sector is locked off", 2.5);
+      showToast("Collect all four keys — extract is locked off", 2.5);
       return;
     }
-    if (extractFuelCollected < EXTRACT_FUEL_NEEDED) {
-      const need = EXTRACT_FUEL_NEEDED - extractFuelCollected;
-      showToast(`Collect ${need} more fuel cell(s) before extracting`, 2.6);
-      return;
-    }
-    redirectToJamPortal();
+    winExtract();
   }
-}
-
-function parseJamInboundParams() {
-  const q = new URLSearchParams(window.location.search);
-  const u = q.get("username");
-  const col = q.get("color");
-  const sp = q.get("speed");
-  if (u && el.playerName) el.playerName.value = u.slice(0, 32);
-  if (sp && el.playerSpeed) {
-    const n = parseFloat(sp);
-    if (Number.isFinite(n)) {
-      const c = THREE.MathUtils.clamp(n, 6, 18);
-      el.playerSpeed.value = String(c);
-      if (el.playerSpeedVal) el.playerSpeedVal.textContent = String(c);
-      playerMoveSpeed = c;
-    }
-  }
-  if (!col || !el.playerColor) return;
-  const t = col.trim();
-  if (t.startsWith("#")) {
-    el.playerColor.value = t.slice(0, 7);
-    return;
-  }
-  if (/^[0-9a-fA-F]{6}$/.test(t)) {
-    el.playerColor.value = `#${t}`;
-    return;
-  }
-  const probe = document.createElement("canvas").getContext("2d");
-  if (!probe) return;
-  probe.fillStyle = t;
-  probe.fillRect(0, 0, 1, 1);
-  const px = probe.getImageData(0, 0, 1, 1).data;
-  const tc = new THREE.Color(px[0] / 255, px[1] / 255, px[2] / 255);
-  el.playerColor.value = `#${tc.getHexString()}`;
 }
 
 function beginWave() {
   spawnQueue = zombiesForWave(wave);
-  if (isBossWave(wave)) {
+  if (isBossWave(wave) || keysCollected >= 3) {
     spawnQueue = Math.max(2, spawnQueue - 2);
     spawnBoss();
+    if (keysCollected >= 4) spawnBoss();
   }
   spawnDelay = 0.15;
   waveClearTimer = 0;
@@ -1757,6 +2121,7 @@ function beginWave() {
 }
 
 function resetGame(quickRestart = false) {
+  if (!quickRestart) readDifficultyFromLauncher();
   resetGateVisual();
   for (const z of zombies) scene.remove(z.mesh);
   zombies = [];
@@ -1772,6 +2137,7 @@ function resetGame(quickRestart = false) {
     bd.mesh.geometry.dispose();
   }
   bloodDecals = [];
+  seedBarrels();
   playerGroup.position.set(0, 0, 0);
   playerGroup.rotation.y = Math.PI;
   playerWalkPhase = 0;
@@ -1788,13 +2154,22 @@ function resetGame(quickRestart = false) {
   rapidFireTime = 0;
   ambientPickupTimer = 5;
   gameTime = DAY_CYCLE_SEC * 0.28;
+  try {
+    if (new URLSearchParams(location.search).has("night")) {
+      gameTime = DAY_CYCLE_SEC * 0.62;
+    }
+  } catch {
+    /* ignore */
+  }
   nightBlend = 0.08;
   skyPhaseLabel = "Afternoon";
   currentWeapon = "pistol";
   spawnQueue = 0;
   waveClearTimer = 0;
   spawnDelay = 0;
-  extractFuelCollected = 0;
+  keysCollected = 0;
+  hordeWasNight = false;
+  hordeEverStarted = false;
   cameraYaw = 0;
   orbitPitch = THREE.MathUtils.degToRad(24);
   lookPitch = 0;
@@ -1804,17 +2179,16 @@ function resetGame(quickRestart = false) {
   initFlashlightForRun();
   applyCharacterFromForm();
   el.gameOverOverlay.classList.remove("visible");
+  if (el.gameOverTitle) el.gameOverTitle.textContent = "That run’s over";
   paused = false;
   if (el.pauseOverlay) el.pauseOverlay.classList.remove("visible");
   if (el.launcherBar) el.launcherBar.classList.add("hidden");
-  spawnObjectiveFuelCells();
-  spawnGateKeyPickup();
-  syncJamPortalWorldHeight();
+  spawnScatteredKeys();
+  syncExtractPortalWorldHeight();
   const skipIntro = quickRestart || useTouchControls();
   if (skipIntro) {
     introCameraActive = false;
     introCameraT = 0;
-    beginWave();
     playing = true;
     snapGameplayCamera();
     if (!useTouchControls()) canvas.requestPointerLock?.();
@@ -1841,15 +2215,16 @@ function updateHud() {
       el.flashText.textContent = "—";
     } else {
       const pct = Math.round((flashlightBattery / FLASH_BAT_MAX) * 100);
-      el.flashText.textContent = `${flashlightOn ? "ON" : "OFF"} · ${THREE.MathUtils.clamp(pct, 0, 100)}%`;
+      const low = flashlightOn && pct <= 20 ? " · LOW" : "";
+      el.flashText.textContent = `${flashlightOn ? "ON" : "OFF"} · ${THREE.MathUtils.clamp(pct, 0, 100)}%${low}`;
     }
   }
   if (el.objectiveText) {
     if (!playing) {
-      el.objectiveText.textContent = `Find the gate key, reach the west compound for ${EXTRACT_FUEL_NEEDED} fuel cells, then extract at the portal.`;
+      el.objectiveText.textContent = `Find ${KEYS_NEEDED} keys. Each key makes the nights worse. Extract west.`;
     } else {
-      const keyLine = gateUnlocked ? "Gate open" : "Find gate key";
-      el.objectiveText.textContent = `${keyLine} — Fuel ${extractFuelCollected}/${EXTRACT_FUEL_NEEDED} — Portal far west`;
+      const keyLine = gateUnlocked ? "Gate open" : `Keys ${keysCollected}/${KEYS_NEEDED}`;
+      el.objectiveText.textContent = `${difficultyLabel()} — ${keyLine} — Extract west`;
     }
   }
   el.healthFill.style.transform = `scaleX(${THREE.MathUtils.clamp(playerHp / 100, 0, 1)})`;
@@ -1869,16 +2244,6 @@ function updateHud() {
   }
   el.weaponName.textContent = weaponHudLabel();
   el.dayNightLabel.textContent = playing ? skyPhaseLabel : "Sky cycle — day into night";
-}
-
-function gameOver() {
-  playing = false;
-  paused = false;
-  if (el.pauseOverlay) el.pauseOverlay.classList.remove("visible");
-  document.exitPointerLock?.();
-  el.gameOverStats.textContent = `You reached wave ${wave} and dropped ${kills} of them. Not bad — next run can go further.`;
-  el.gameOverOverlay.classList.add("visible");
-  syncTouchUi();
 }
 
 const justPressed = new Set();
@@ -2119,8 +2484,7 @@ function updatePlayer(dt, nightForTorch) {
   playerLegR.rotation.x = -sWalk * 0.52 * playerWalkAmp;
   playerTorso.position.y = bob * 0.052 * playerWalkAmp;
   playerTorso.rotation.z = sWalk * 0.038 * playerWalkAmp;
-  meleeAnim = Math.max(0, meleeAnim - dt * 4.2);
-  playerTorso.rotation.y = Math.sin(meleeAnim * Math.PI) * 0.85;
+  applyMeleePose(dt);
 
   if (cameraPerson === "first") {
     if (autoAimTime > 0) {
@@ -2146,7 +2510,7 @@ function updatePlayer(dt, nightForTorch) {
     camera.rotation.order = "YXZ";
     camera.rotation.y = cameraYaw;
     camera.rotation.x = lookPitch;
-    camera.rotation.z = 0;
+    camera.rotation.z = meleeCamRoll();
   } else {
     setAimRayNdc();
     raycaster.setFromCamera(ndc, camera);
@@ -2180,104 +2544,189 @@ function updatePlayer(dt, nightForTorch) {
   playerLantern.position.copy(playerGroup.position);
   playerLantern.position.y = playerGroup.position.y + 5.8;
 
-  const fx = Math.sin(playerGroup.rotation.y);
-  const fz = Math.cos(playerGroup.rotation.y);
-  const tx = playerGroup.position.x + fx * 20;
-  const tz = playerGroup.position.z + fz * 20;
-  torchTarget.position.set(tx, terrainHeightAt(tx, tz) + 0.6, tz);
-  playerTorchSpot.target.updateMatrixWorld();
-  playerTorchSpot.updateMatrixWorld();
+  syncFlashlightRig(nightForTorch);
 
-  const torchK = THREE.MathUtils.clamp(0.22 + 0.78 * Math.min(1, nightForTorch), 0, 1);
-  const batK = flashlightOn ? THREE.MathUtils.clamp(flashlightBattery / FLASH_BAT_MAX, 0, 1) : 0;
-  const beamK = torchK * (0.15 + 0.85 * batK);
-  playerTorchSpot.intensity = THREE.MathUtils.lerp(14, 54, beamK);
-  playerTorchSpot.distance = THREE.MathUtils.lerp(58, 108, beamK);
-  playerTorchPoint.intensity = THREE.MathUtils.lerp(16, 52, beamK);
-  playerTorchPoint.distance = THREE.MathUtils.lerp(62, 108, beamK);
-  playerTorchPoint.decay = THREE.MathUtils.lerp(1.02, 1.14, torchK);
-  playerTorchPoint.position.copy(torchFlameMesh.position);
   if (torchFlameMesh) {
-    torchFlameMesh.visible = beamK > 0.02;
-    torchFlameMesh.material.emissiveIntensity =
-      THREE.MathUtils.lerp(1.1, 3.1, torchK) + Math.sin(flickerT * 14) * 0.35 * (0.45 + torchK);
-    torchFlameMesh.scale.setScalar(0.95 + 0.65 * torchK);
+    const nightK = Math.max(THREE.MathUtils.clamp(nightForTorch, 0, 1), deepNightBlend);
+    const power = flashlightPower();
+    const beamOn = flashlightOn && power > 0.02 && (nightK > 0.05 || deepNightBlend > 0.02);
+    const fp = cameraPerson === "first";
+    torchFlameMesh.visible = beamOn && !fp;
+    if (beamOn) {
+      torchFlameMesh.material.emissiveIntensity = 1.4 + Math.sin(flickerT * 18) * 0.7;
+      torchFlameMesh.scale.setScalar(0.9 + 0.45 * power);
+    }
   }
-  playerTorchSpot.visible = beamK > 0.02;
-  playerTorchPoint.visible = beamK > 0.02;
+}
+
+function syncFlashlightRig(nightForTorch) {
+  const nightK = Math.max(
+    THREE.MathUtils.clamp(nightForTorch, 0, 1),
+    deepNightBlend
+  );
+  const power = flashlightPower();
+  const batPct = THREE.MathUtils.clamp(flashlightBattery / FLASH_BAT_MAX, 0, 1);
+  const beamOn = flashlightOn && power > 0.02 && (nightK > 0.05 || deepNightBlend > 0.02);
+  const flicker =
+    1 +
+    Math.sin(flickerT * 37) * 0.04 * nightK +
+    (batPct < 0.2 ? (Math.sin(flickerT * 63) * 0.5 + 0.5) * 0.22 : 0);
+  const beamK = beamOn ? power * flicker : 0;
+  const fp = cameraPerson === "first";
+
+  if (fp) {
+    flashRig.visible = true;
+    flashRig.position.copy(camera.position);
+    flashRig.quaternion.copy(camera.quaternion);
+    if (playerTorchPoint.parent !== flashRig) {
+      scene.remove(playerTorchPoint);
+      flashRig.add(playerTorchPoint);
+    }
+    playerTorchPoint.position.set(0, 0, -0.55);
+    playerTorchSpot.intensity = beamOn ? 900 * beamK * THREE.MathUtils.lerp(0.6, 1, nightK) : 0;
+    playerTorchSpot.distance = FLASH_HARD_CUT;
+    playerTorchSpot.angle = 0.46;
+    playerTorchSpot.penumbra = 0.3;
+    playerTorchSpot.decay = 1;
+    playerTorchPoint.intensity = beamOn ? 55 * beamK * nightK : 0;
+    playerTorchPoint.distance = 4.2;
+    playerTorchPoint.decay = 1.1;
+    playerTorchSpot.visible = beamOn;
+    playerTorchPoint.visible = beamOn;
+  } else {
+    flashRig.visible = false;
+    playerTorchSpot.intensity = 0;
+    playerTorchSpot.visible = false;
+    if (playerTorchPoint.parent === flashRig) {
+      flashRig.remove(playerTorchPoint);
+      scene.add(playerTorchPoint);
+    }
+    playerTorchPoint.position.set(
+      playerGroup.position.x,
+      playerGroup.position.y + 1.15,
+      playerGroup.position.z
+    );
+    playerTorchPoint.intensity = beamOn ? 95 * beamK * THREE.MathUtils.lerp(0.5, 1, nightK) : 0;
+    playerTorchPoint.distance = FLASH_HARD_CUT;
+    playerTorchPoint.decay = 0.9;
+    playerTorchPoint.visible = beamOn;
+  }
+  flashRig.updateMatrixWorld(true);
+  playerTorchSpot.target.updateMatrixWorld(true);
+  playerTorchSpot.updateMatrixWorld(true);
 }
 
 function updateDayNight(dt) {
-  if (!playing) return nightBlend;
-  if (!paused) gameTime += dt;
-  const cycle = ((gameTime % DAY_CYCLE_SEC) + DAY_CYCLE_SEC) % DAY_CYCLE_SEC;
+  if (playing && !paused) gameTime += dt;
+  const cycle = playing
+    ? ((gameTime % DAY_CYCLE_SEC) + DAY_CYCLE_SEC) % DAY_CYCLE_SEC
+    : DAY_CYCLE_SEC * 0.28;
   const u = cycle / DAY_CYCLE_SEC;
 
   let night = 0;
-  if (u < 0.1) {
-    night = 1 - u / 0.1;
-    skyPhaseLabel = "Dawn";
-  } else if (u < 0.36) {
+  if (u < 0.12) {
+    night = 1 - THREE.MathUtils.smoothstep(0, 0.12, u);
+    skyPhaseLabel = u < 0.085 ? "Dawn" : "Morning";
+  } else if (u < 0.32) {
     night = 0;
     skyPhaseLabel = u < 0.2 ? "Morning" : "Afternoon";
-  } else if (u < 0.48) {
-    night = (u - 0.36) / 0.12;
+  } else if (u < 0.4) {
+    night = THREE.MathUtils.smoothstep(0.32, 0.4, u);
     skyPhaseLabel = "Dusk";
-  } else if (u < 0.86) {
+  } else if (u < 0.88) {
     night = 1;
-    skyPhaseLabel = u < 0.58 ? "Nightfall" : "Dead of night";
+    skyPhaseLabel = u < 0.5 ? "Nightfall" : "Dead of night";
   } else {
-    night = 1 - (u - 0.86) / 0.14;
+    night = 1 - THREE.MathUtils.smoothstep(0.88, 1, u);
     skyPhaseLabel = "Predawn";
   }
-  nightBlend = THREE.MathUtils.smoothstep(0, 1, THREE.MathUtils.clamp(night, 0, 1));
+  nightBlend = THREE.MathUtils.clamp(night, 0, 1);
+  if (u >= 0.46 && u < 0.87) {
+    deepNightBlend = u < 0.52 ? THREE.MathUtils.smoothstep(0.46, 0.52, u) : 1;
+  } else if (u >= 0.87) {
+    deepNightBlend = 1 - THREE.MathUtils.smoothstep(0.87, 0.94, u);
+  } else {
+    deepNightBlend = 0;
+  }
 
-  const dayK = 1 - nightBlend;
   const tape = 1 + Math.sin(flickerT * 1.65) * 0.02 * nightBlend + Math.sin(flickerT * 31) * 0.004 * nightBlend;
-  const duskAmt = THREE.MathUtils.clamp(1 - Math.abs(u - 0.42) / 0.08, 0, 1);
-  const dawnAmt = THREE.MathUtils.clamp(1 - Math.abs(u - 0.04) / 0.08, 0, 1);
+  const duskAmt = THREE.MathUtils.clamp(1 - Math.abs(u - 0.36) / 0.07, 0, 1);
+  const dawnAmt = THREE.MathUtils.clamp(1 - Math.abs(u - 0.06) / 0.09, 0, 1);
 
   skyWork.copy(skyDay).lerp(skyNight, nightBlend);
-  skyWork.lerp(skyDusk, duskAmt * 0.45);
-  skyWork.lerp(skyDawn, dawnAmt * 0.35);
+  skyWork.lerp(skyDusk, duskAmt * 0.28 * (1 - deepNightBlend));
+  skyWork.lerp(skyDawn, dawnAmt * 0.35 * (1 - deepNightBlend));
+  if (deepNightBlend > 0.65) skyWork.setRGB(0, 0, 0);
+  else skyWork.lerp(skyNight, deepNightBlend * 0.88);
+  if (!(scene.background instanceof THREE.Color)) scene.background = new THREE.Color();
   scene.background.copy(skyWork);
+  renderer.setClearColor(skyWork, 1);
+
+  if (deepNightBlend > 0.35) {
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.toneMappingExposure = 1;
+  } else {
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = THREE.MathUtils.lerp(1.12, 0.62, nightBlend);
+  }
+
+  const lightsOut = deepNightBlend > 0.08;
+  ambient.visible = !lightsOut;
+  hemi.visible = !lightsOut;
+  fill.visible = !lightsOut;
+  sick.visible = !lightsOut;
+  playerLantern.visible = !lightsOut;
+  moon.visible = !lightsOut;
+
+  if (!lightsOut) {
+    ambient.intensity = THREE.MathUtils.lerp(0.42, 0.06, nightBlend);
+    ambient.color.setRGB(0.72, 0.78, 0.92);
+    hemi.intensity = THREE.MathUtils.lerp(0.55, 0.12, nightBlend);
+    hemi.color.set(0xc8d8f0);
+    hemi.groundColor.set(0x3a3428);
+    fill.intensity = THREE.MathUtils.lerp(0.22, 0.04, nightBlend);
+    playerLantern.intensity = THREE.MathUtils.lerp(0.12, 0.02, nightBlend);
+    sick.intensity = THREE.MathUtils.lerp(0.04, 0.01, nightBlend);
+    const sunAng = u * Math.PI * 2;
+    moon.position.set(Math.cos(sunAng) * 78, Math.sin(sunAng) * 86, 28);
+    if (moon.position.y < 10) moon.position.y = 10 + (10 - moon.position.y) * 0.08;
+    moon.intensity = THREE.MathUtils.lerp(1.15, 0.18, nightBlend);
+    moon.color.set(0xfff0d2);
+  } else {
+    ambient.intensity = 0;
+    hemi.intensity = 0;
+    fill.intensity = 0;
+    playerLantern.intensity = 0;
+    sick.intensity = 0;
+    moon.intensity = 0;
+  }
 
   if (scene.fog instanceof THREE.FogExp2) {
-    scene.fog.density = THREE.MathUtils.lerp(0.012, 0.048, nightBlend) * tape;
-    scene.fog.color.copy(skyWork).multiplyScalar(0.55 + 0.2 * dayK);
+    scene.fog.density = THREE.MathUtils.lerp(0.0058, 0.055, deepNightBlend) * tape;
+    scene.fog.color.setRGB(0, 0, 0);
   }
 
-  ambient.intensity = THREE.MathUtils.lerp(0.42, 0.03, nightBlend);
-  ambient.color.setRGB(
-    THREE.MathUtils.lerp(0.72, 0.07, nightBlend),
-    THREE.MathUtils.lerp(0.78, 0.06, nightBlend),
-    THREE.MathUtils.lerp(0.92, 0.1, nightBlend)
-  );
+  const gMul = THREE.MathUtils.lerp(1, 0.035, deepNightBlend);
+  ground.material.vertexColors = deepNightBlend < 0.2;
+  ground.material.color.setRGB(gMul, gMul * 0.9, gMul * 0.82);
+  ground.material.needsUpdate = true;
 
-  hemi.intensity = THREE.MathUtils.lerp(0.55, 0.05, nightBlend);
-  hemi.color.set(nightBlend > 0.55 ? 0x202040 : 0xc8d8f0);
-  hemi.groundColor.set(nightBlend > 0.55 ? 0x080604 : 0x3a3428);
+  zombieEyes.color.setHex(deepNightBlend > 0.35 ? 0xff1a08 : 0x441010);
+  foliageMat.color.setHex(deepNightBlend > 0.45 ? 0x010201 : 0x2d9a55);
+  trunkMat.color.setHex(deepNightBlend > 0.45 ? 0x020101 : 0x3d2e22);
 
-  fill.intensity = THREE.MathUtils.lerp(0.22, 0.02, nightBlend);
-  playerLantern.intensity = THREE.MathUtils.lerp(0.15, 1.15, nightBlend);
-  sick.intensity = THREE.MathUtils.lerp(0.04, 0.16, nightBlend) + Math.sin(flickerT * 2.35) * 0.03 * nightBlend;
-
-  const sunAng = u * Math.PI * 2;
-  moon.position.set(Math.cos(sunAng) * 78, Math.sin(sunAng) * 86, 28);
-  if (moon.position.y < 10) {
-    moon.position.y = 10 + (10 - moon.position.y) * 0.08;
+  if (el.vhsOverlay) {
+    el.vhsOverlay.style.opacity = String(THREE.MathUtils.lerp(0.18, 0.78, deepNightBlend));
+    el.vhsOverlay.classList.toggle("night", deepNightBlend > 0.55);
   }
-  moon.intensity = THREE.MathUtils.lerp(1.15, 0.08, nightBlend);
-  moon.color.set(nightBlend > 0.5 ? 0xc8c0e8 : 0xfff0d2);
 
-  renderer.toneMappingExposure = THREE.MathUtils.lerp(1.12, 0.78, nightBlend);
-
-  const gMul = THREE.MathUtils.lerp(1, 0.22, nightBlend);
-  ground.material.color.setRGB(gMul, gMul * 0.96, gMul * 0.9);
-
-  zombieEyes.color.setHex(nightBlend > 0.35 ? 0xff2424 : 0x441010);
-  foliageMat.color.setHex(nightBlend > 0.5 ? 0x0c1810 : 0x2d9a55);
-  trunkMat.color.setHex(nightBlend > 0.5 ? 0x181210 : 0x3d2e22);
+  if (!playing) {
+    playerTorchSpot.visible = false;
+    playerTorchSpot.intensity = 0;
+    playerTorchPoint.visible = false;
+    playerTorchPoint.intensity = 0;
+    if (torchFlameMesh) torchFlameMesh.visible = true;
+  }
 
   return nightBlend;
 }
@@ -2303,6 +2752,8 @@ function updateZombies(dt) {
       const amp = (z.isBoss ? 0.36 : 0.46) * chase;
       rig.legL.rotation.x = Math.sin(ph) * amp + sham;
       rig.legR.rotation.x = -Math.sin(ph) * amp + sham;
+      if (rig.armL) rig.armL.rotation.x = 0.35 - Math.sin(ph) * amp * 0.7;
+      if (rig.armR) rig.armR.rotation.x = -0.45 + Math.sin(ph) * amp * 0.7;
       rig.torso.position.y = Math.abs(Math.sin(ph * 2)) * 0.048 * chase;
       rig.torso.rotation.z = Math.sin(ph * 0.52 + jitter * 0.2) * 0.085 * chase;
     }
@@ -2330,6 +2781,19 @@ function updateBullets(dt) {
       bullets.splice(i, 1);
       continue;
     }
+    for (const barrel of barrels) {
+      const dxb = b.mesh.position.x - barrel.x;
+      const dzb = b.mesh.position.z - barrel.z;
+      const horizB = Math.hypot(dxb, dzb);
+      const barrelY = terrainHeightAt(barrel.x, barrel.z) + 0.52;
+      if (horizB < 1.2 && Math.abs(b.mesh.position.y - barrelY) < 1.15) {
+        breakBarrel(barrel);
+        scene.remove(b.mesh);
+        bullets.splice(i, 1);
+        showToast("Barrel smashed", 0.8);
+        continue outer;
+      }
+    }
     for (let j = zombies.length - 1; j >= 0; j--) {
       const z = zombies[j];
       const dx = b.mesh.position.x - z.mesh.position.x;
@@ -2353,19 +2817,48 @@ function updateBullets(dt) {
   }
 }
 
+function isNightHorde() {
+  return deepNightBlend > 0.45;
+}
+
+function retreatZombies() {
+  if (zombies.length === 0) return;
+  spawnQueue += zombies.length;
+  for (const z of zombies) scene.remove(z.mesh);
+  zombies = [];
+}
+
 function updateWaves(dt) {
   if (!playing) return;
+  const d = diffCfg();
   ambientPickupTimer -= dt;
-  if (ambientPickupTimer <= 0 && pickups.length < 4) {
-    spawnPickup(randomPickupKind(), playerGroup.position.x, playerGroup.position.z, 28);
-    ambientPickupTimer = 24 + Math.random() * 14;
+  if (ambientPickupTimer <= 0 && pickups.length < d.ambientMax) {
+    spawnPickup(randomPickupKind(), playerGroup.position.x, playerGroup.position.z, 36);
+    const iv = d.ambientInterval;
+    ambientPickupTimer = iv[0] + Math.random() * (iv[1] - iv[0]);
   }
+  if (!isNightHorde()) {
+    retreatZombies();
+    hordeWasNight = false;
+    return;
+  }
+  if (!hordeWasNight) {
+    showToast("Night. The beam is all you have.", 2.6);
+  }
+  if (!hordeEverStarted) {
+    beginWave();
+    hordeEverStarted = true;
+  }
+  hordeWasNight = true;
   if (spawnQueue > 0) {
     spawnDelay -= dt;
     if (spawnDelay <= 0) {
       spawnZombie();
       spawnQueue -= 1;
-      spawnDelay = Math.max(0.04, 0.22 - wave * 0.01);
+      spawnDelay = Math.max(
+        0.035,
+        (0.2 - wave * 0.012 - keysCollected * 0.028) * diffCfg().spawnDelayMul
+      );
     }
   } else if (zombies.length === 0) {
     waveClearTimer += dt;
@@ -2382,7 +2875,7 @@ function frame(now) {
   last = now;
   flickerT += dt;
 
-  jamPortalGroup.rotation.y += dt * 0.88;
+  extractPortalGroup.rotation.y += dt * 0.88;
   updateGateAnimation(dt);
 
   if (playing && !introCameraActive && !paused) {
@@ -2399,14 +2892,16 @@ function frame(now) {
     updateZombies(dt);
     updateBullets(dt);
     updatePickups(dt);
+    updateBarrels(dt);
     updateMuzzleFlashes(dt);
     updateBloodDecals(dt);
     updateWaves(dt);
-    checkJamPortalEntry();
+    checkExtractPortalEntry();
     justPressed.clear();
   } else if (playing && introCameraActive) {
     if (!paused) {
       introCameraT += dt / INTRO_CAM_SEC;
+      updateDayNight(dt);
     }
     const k = THREE.MathUtils.clamp(introCameraT, 0, 1);
     const ease = k * k * (3 - 2 * k);
@@ -2417,7 +2912,6 @@ function frame(now) {
       introCameraActive = false;
       playerGroup.rotation.y = Math.PI;
       cameraYaw = 0;
-      beginWave();
       snapGameplayCamera();
       syncTouchUi();
     }
@@ -2431,11 +2925,13 @@ function frame(now) {
       camera.position.copy(thirdCamPos);
       camera.lookAt(camLookTmp);
     }
+    syncFlashlightRig(nightBlend);
     justPressed.clear();
   } else {
     document.exitPointerLock?.();
     playerGroup.rotation.y += dt * 0.2;
     applyMenuCamera();
+    updateDayNight(dt);
     justPressed.clear();
   }
 
@@ -2451,8 +2947,8 @@ function frame(now) {
 }
 
 cameraPerson = readCameraPersonPref();
+loadDifficultyPref();
 
-parseJamInboundParams();
 applyCharacterFromForm();
 if (el.playerSpeedVal && el.playerSpeed) el.playerSpeedVal.textContent = el.playerSpeed.value;
 syncPauseRadiosFromGame();
@@ -2460,6 +2956,28 @@ syncCameraFovAndRig();
 
 el.launcherPlay?.addEventListener("click", () => resetGame(false));
 el.restartBtn.addEventListener("click", () => resetGame(true));
+el.diffCasual?.addEventListener("change", () => {
+  if (el.diffCasual.checked) {
+    gameDifficulty = "casual";
+    try {
+      localStorage.setItem(DIFF_PREF_KEY, "casual");
+    } catch {
+      /* ignore */
+    }
+    syncDifficultyDesc();
+  }
+});
+el.diffSurvival?.addEventListener("change", () => {
+  if (el.diffSurvival.checked) {
+    gameDifficulty = "survival";
+    try {
+      localStorage.setItem(DIFF_PREF_KEY, "survival");
+    } catch {
+      /* ignore */
+    }
+    syncDifficultyDesc();
+  }
+});
 el.playerColor?.addEventListener("input", () => applyCharacterFromForm());
 el.playerSpeed?.addEventListener("input", () => {
   if (el.playerSpeedVal) el.playerSpeedVal.textContent = el.playerSpeed.value;
