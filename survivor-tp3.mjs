@@ -38,6 +38,14 @@ const el = {
   ammoText: document.getElementById("ammoText"),
   flashText: document.getElementById("flashText"),
   objectiveText: document.getElementById("objectiveText"),
+  touchUi: document.getElementById("touchUi"),
+  lookPad: document.getElementById("lookPad"),
+  joyPad: document.getElementById("joyPad"),
+  joyKnob: document.getElementById("joyKnob"),
+  touchPause: document.getElementById("touchPause"),
+  touchFlash: document.getElementById("touchFlash"),
+  touchMelee: document.getElementById("touchMelee"),
+  touchFire: document.getElementById("touchFire"),
 };
 
 const canvas = document.getElementById("gameCanvas");
@@ -45,13 +53,34 @@ if (!canvas) {
   throw new Error('Missing #gameCanvas — add <canvas id="gameCanvas"> in index.html');
 }
 
+const IS_LITE_GPU =
+  window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 820;
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: true,
+  antialias: !IS_LITE_GPU,
   powerPreference: "high-performance",
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
+function currentPixelRatio() {
+  const cap = IS_LITE_GPU || window.matchMedia("(pointer: coarse)").matches ? 1.15 : 2;
+  return Math.min(window.devicePixelRatio || 1, cap);
+}
+function viewSize() {
+  const vv = window.visualViewport;
+  return {
+    w: Math.max(1, Math.round(vv?.width ?? window.innerWidth)),
+    h: Math.max(1, Math.round(vv?.height ?? window.innerHeight)),
+  };
+}
+function fitRenderer() {
+  const { w, h } = viewSize();
+  renderer.setPixelRatio(currentPixelRatio());
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
+}
+fitRenderer();
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.88;
@@ -66,6 +95,11 @@ camera.position.set(0, 38, 32);
 
 const fogColor = new THREE.Color(0x020105);
 scene.fog = new THREE.FogExp2(fogColor.getHex(), 0.041);
+const skyWork = new THREE.Color();
+const skyDay = new THREE.Color(0x7aa0c8);
+const skyNight = new THREE.Color(0x050208);
+const skyDusk = new THREE.Color(0xc07040);
+const skyDawn = new THREE.Color(0xe8a878);
 
 const ambient = new THREE.AmbientLight(0x1a1830, 0.04);
 scene.add(ambient);
@@ -74,7 +108,7 @@ scene.add(hemi);
 const moon = new THREE.DirectionalLight(0xc8c0e8, 0.09);
 moon.position.set(-38, 72, 28);
 moon.castShadow = true;
-moon.shadow.mapSize.setScalar(2048);
+moon.shadow.mapSize.setScalar(IS_LITE_GPU ? 1024 : 2048);
 moon.shadow.camera.near = 5;
 moon.shadow.camera.far = 220;
 const b = 108;
@@ -364,13 +398,20 @@ let introCameraT = 0;
 const INTRO_CAM_SEC = 2.12;
 
 let cameraYaw = 0;
-let cameraPitch = THREE.MathUtils.degToRad(24);
+/** Third-person orbit elevation (0 ≈ behind, higher ≈ overhead). */
+let orbitPitch = THREE.MathUtils.degToRad(24);
+/** First-person look pitch. Three.js YXZ: +x looks down. */
+let lookPitch = 0;
 const CAM_DIST = 13.5;
 const CAM_LOOK_Y = 0.95;
 const CAM_EYE_OFFSET_Y = 1.12;
-const CAM_PITCH_MIN = 0.18;
-const CAM_PITCH_MAX = 1.28;
-const CAM_MOUSE_SENS = 0.002;
+const ORBIT_PITCH_MIN = 0.12;
+const ORBIT_PITCH_MAX = 1.22;
+const LOOK_PITCH_MIN = -1.15;
+const LOOK_PITCH_MAX = 1.12;
+const CAM_MOUSE_SENS = 0.0022;
+const CAM_TOUCH_SENS = 0.0034;
+const DAY_CYCLE_SEC = 108;
 const CAM_FOV_THIRD = 52;
 const CAM_FOV_FIRST = 78;
 const FP_EYE_Y = 1.38;
@@ -506,11 +547,14 @@ const MED_KIT_HEAL = 38;
 const FLASH_BAT_MAX = 120; // seconds
 const FLASH_BAT_PICKUP = 45; // seconds
 const FLASH_DRAIN_PER_SEC = 1.0;
-const MELEE_RANGE = 2.25;
-const MELEE_CD_SEC = 0.38;
+const MELEE_RANGE = 2.85;
+const MELEE_CONE_DOT = 0.22;
+const MELEE_CD_SEC = 0.34;
+const MELEE_ZOMBIE_DAMAGE = 3.4;
 
 let gameTime = 0;
 let nightBlend = 0;
+let skyPhaseLabel = "Afternoon";
 
 const BOSS_WAVE_INTERVAL = 4;
 const BOSS_WAVE_FIRST = 3;
@@ -542,6 +586,7 @@ let ambientPickupTimer = 0;
 let flashlightOn = true;
 let flashlightBattery = FLASH_BAT_MAX * 0.72;
 let meleeCd = 0;
+let meleeAnim = 0;
 /** @type {{ mesh: THREE.Group, bobPhase: number, kind: PickupKind }[]} */
 let pickups = [];
 /** @type {{ group: THREE.Group, t: number, flare: THREE.Mesh, flashLight: THREE.PointLight }[]} */
@@ -775,13 +820,20 @@ function pickFuelSpawnPoint(px, pz, minR, maxR) {
   return { x, z };
 }
 
+function playerLookForward(out = tmpV) {
+  // Matches Three.js camera default (-Z) after yaw around Y.
+  return out.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw));
+}
+
 function computeThirdPersonCameraPosition(targetPos, lookTarget) {
-  const flat = Math.cos(cameraPitch) * CAM_DIST;
-  const h = Math.sin(cameraPitch) * CAM_DIST;
+  const flat = Math.cos(orbitPitch) * CAM_DIST;
+  const h = Math.sin(orbitPitch) * CAM_DIST;
+  const fx = -Math.sin(cameraYaw);
+  const fz = -Math.cos(cameraYaw);
   targetPos.set(
-    playerGroup.position.x - Math.sin(cameraYaw) * flat,
+    playerGroup.position.x - fx * flat,
     playerGroup.position.y + CAM_EYE_OFFSET_Y + h,
-    playerGroup.position.z - Math.cos(cameraYaw) * flat
+    playerGroup.position.z - fz * flat
   );
   lookTarget.set(playerGroup.position.x, playerGroup.position.y + CAM_LOOK_Y, playerGroup.position.z);
 }
@@ -789,9 +841,158 @@ function computeThirdPersonCameraPosition(targetPos, lookTarget) {
 function updateCrosshairVisible() {
   if (!el.crosshair) return;
   const on =
-    playing && !introCameraActive && !paused && document.pointerLockElement === canvas;
+    playing &&
+    !introCameraActive &&
+    !paused &&
+    (document.pointerLockElement === canvas || useTouchControls());
   el.crosshair.classList.toggle("visible", !!on);
 }
+
+let preferTouchUi = window.matchMedia("(pointer: coarse)").matches;
+function useTouchControls() {
+  return (
+    window.matchMedia("(pointer: coarse)").matches ||
+    preferTouchUi ||
+    window.innerWidth <= 760
+  );
+}
+
+const joy = { id: null, ox: 0, oy: 0, x: 0, y: 0 };
+const lookTouch = { id: null, x: 0, y: 0 };
+let touchFireHeld = false;
+
+function syncTouchUi() {
+  const show =
+    useTouchControls() &&
+    playing &&
+    !introCameraActive &&
+    !paused &&
+    !el.gameOverOverlay?.classList.contains("visible");
+  if (el.touchUi) el.touchUi.hidden = !show;
+  if (!show) {
+    joy.id = null;
+    joy.x = 0;
+    joy.y = 0;
+    lookTouch.id = null;
+    touchFireHeld = false;
+    if (el.joyKnob) el.joyKnob.style.transform = "translate(0px, 0px)";
+    el.touchFire?.classList.remove("held");
+  }
+}
+
+function applyLookDelta(dx, dy, sens) {
+  cameraYaw -= dx * sens;
+  if (cameraPerson === "first") {
+    lookPitch = THREE.MathUtils.clamp(lookPitch + dy * sens * 0.95, LOOK_PITCH_MIN, LOOK_PITCH_MAX);
+  } else {
+    orbitPitch = THREE.MathUtils.clamp(orbitPitch + dy * sens * 0.82, ORBIT_PITCH_MIN, ORBIT_PITCH_MAX);
+  }
+}
+
+function updateJoyFromEvent(e) {
+  const maxR = 52;
+  let dx = e.clientX - joy.ox;
+  let dy = e.clientY - joy.oy;
+  const len = Math.hypot(dx, dy);
+  if (len > maxR) {
+    dx = (dx / len) * maxR;
+    dy = (dy / len) * maxR;
+  }
+  joy.x = dx / maxR;
+  joy.y = dy / maxR;
+  if (el.joyKnob) el.joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+}
+
+function bindTouchControls() {
+  const pad = el.joyPad;
+  const look = el.lookPad;
+  pad?.addEventListener("pointerdown", (e) => {
+    if (!playing || paused || introCameraActive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    joy.id = e.pointerId;
+    const rect = pad.getBoundingClientRect();
+    joy.ox = rect.left + rect.width * 0.5;
+    joy.oy = rect.top + rect.height * 0.5;
+    pad.setPointerCapture?.(e.pointerId);
+    updateJoyFromEvent(e);
+  });
+  const endJoy = (e) => {
+    if (joy.id !== e.pointerId) return;
+    joy.id = null;
+    joy.x = 0;
+    joy.y = 0;
+    if (el.joyKnob) el.joyKnob.style.transform = "translate(0px, 0px)";
+  };
+  pad?.addEventListener("pointerup", endJoy);
+  pad?.addEventListener("pointercancel", endJoy);
+
+  look?.addEventListener("pointerdown", (e) => {
+    if (!playing || paused || introCameraActive) return;
+    e.preventDefault();
+    lookTouch.id = e.pointerId;
+    lookTouch.x = e.clientX;
+    lookTouch.y = e.clientY;
+    look.setPointerCapture?.(e.pointerId);
+  });
+  const endLook = (e) => {
+    if (lookTouch.id !== e.pointerId) return;
+    lookTouch.id = null;
+  };
+  look?.addEventListener("pointerup", endLook);
+  look?.addEventListener("pointercancel", endLook);
+
+  el.touchFire?.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    touchFireHeld = true;
+    el.touchFire.classList.add("held");
+    el.touchFire.setPointerCapture?.(e.pointerId);
+  });
+  const endFire = () => {
+    touchFireHeld = false;
+    el.touchFire?.classList.remove("held");
+  };
+  el.touchFire?.addEventListener("pointerup", endFire);
+  el.touchFire?.addEventListener("pointercancel", endFire);
+
+  el.touchMelee?.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    tryMelee();
+  });
+  el.touchFlash?.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleFlashlight();
+  });
+  el.touchPause?.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (playing && !introCameraActive) setPaused(true);
+  });
+}
+
+window.addEventListener(
+  "touchstart",
+  () => {
+    preferTouchUi = true;
+    syncTouchUi();
+  },
+  { passive: true }
+);
+window.addEventListener(
+  "touchmove",
+  (e) => {
+    if (playing && !paused && !el.gameOverOverlay?.classList.contains("visible")) {
+      e.preventDefault();
+    }
+  },
+  { passive: false }
+);
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+document.addEventListener("contextmenu", (e) => {
+  if (playing) e.preventDefault();
+});
 
 function showToast(msg, dur = 2.2) {
   if (el.toast) {
@@ -896,8 +1097,8 @@ function weaponHudLabel() {
 }
 
 /** @param {PickupKind} kind */
-function spawnPickup(kind, nearX, nearZ, spread = 14) {
-  if (pickups.length >= 14) return;
+function spawnPickup(kind, nearX, nearZ, spread = 14, force = false) {
+  if (!force && pickups.length >= 22) return;
   let x;
   let z;
   if (spread <= 0) {
@@ -1144,6 +1345,29 @@ for (let i = 0; i < 28; i++) {
   treeColliders.push(c);
   barrels.push({ mesh: m, band, x, z, collider: c, broken: false });
 }
+
+function placeBarrel(x, z) {
+  if (!isClearOfTrees(x, z, 2.15)) return;
+  const y = terrainHeightAt(x, z);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 1.05, 14), barrelMat);
+  m.position.set(x, y + 0.52, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.05, 6, 20), barrelBandMat);
+  band.rotation.x = Math.PI / 2;
+  band.position.copy(m.position);
+  band.position.y += 0.12;
+  barrelsGroup.add(m);
+  barrelsGroup.add(band);
+  const c = { x, z, r: 1.35 };
+  treeColliders.push(c);
+  barrels.push({ mesh: m, band, x, z, collider: c, broken: false });
+}
+
+placeBarrel(6.5, 5.2);
+placeBarrel(-7.4, 8.1);
+placeBarrel(4.8, -9.4);
+placeBarrel(-5.6, -6.8);
 scene.add(barrelsGroup);
 
 function maybeBarrelDropKind() {
@@ -1155,24 +1379,71 @@ function maybeBarrelDropKind() {
   return "medKit";
 }
 
+function breakBarrel(b) {
+  if (b.broken) return false;
+  b.broken = true;
+  b.collider.r = 0;
+  b.mesh.parent?.remove(b.mesh);
+  b.band.parent?.remove(b.band);
+  spawnPickup(maybeBarrelDropKind(), b.x, b.z, 0, true);
+  spawnBloodDecal(b.x, b.z);
+  return true;
+}
+
 function tryMelee() {
   if (!playing || introCameraActive || paused) return;
   if (meleeCd > 0) return;
   meleeCd = MELEE_CD_SEC;
+  meleeAnim = 1;
   const px = playerGroup.position.x;
   const pz = playerGroup.position.z;
+  playerLookForward(tmpV);
+  const fx = tmpV.x;
+  const fz = tmpV.z;
+  let hit = false;
+
   for (const b of barrels) {
     if (b.broken) continue;
     const dx = b.x - px;
     const dz = b.z - pz;
-    if (dx * dx + dz * dz > MELEE_RANGE * MELEE_RANGE) continue;
-    b.broken = true;
-    b.collider.r = 0;
-    scene.remove(b.mesh);
-    scene.remove(b.band);
-    spawnPickup(maybeBarrelDropKind(), b.x, b.z, 0);
-    spawnBloodDecal(b.x, b.z);
-    return;
+    const dist = Math.hypot(dx, dz);
+    if (dist > MELEE_RANGE || dist < 1e-6) continue;
+    const toward = (dx / dist) * fx + (dz / dist) * fz;
+    if (toward < MELEE_CONE_DOT && dist > 1.35) continue;
+    if (breakBarrel(b)) {
+      hit = true;
+      showToast("Barrel smashed", 0.9);
+      break;
+    }
+  }
+
+  if (!hit) {
+    for (let j = zombies.length - 1; j >= 0; j--) {
+      const z = zombies[j];
+      const dx = z.mesh.position.x - px;
+      const dz = z.mesh.position.z - pz;
+      const dist = Math.hypot(dx, dz);
+      const reach = MELEE_RANGE + (z.isBoss ? 0.45 : 0);
+      if (dist > reach || dist < 1e-6) continue;
+      const toward = (dx / dist) * fx + (dz / dist) * fz;
+      if (toward < MELEE_CONE_DOT) continue;
+      z.hp -= z.isBoss ? MELEE_ZOMBIE_DAMAGE * 0.72 : MELEE_ZOMBIE_DAMAGE;
+      z.mesh.position.x += fx * 1.15;
+      z.mesh.position.z += fz * 1.15;
+      hit = true;
+      if (z.hp <= 0) {
+        spawnBloodDecal(z.mesh.position.x, z.mesh.position.z);
+        maybeDropPickupFromKill(z.mesh.position.x, z.mesh.position.z);
+        scene.remove(z.mesh);
+        zombies.splice(j, 1);
+        kills += 1;
+        showToast("Melee kill", 0.85);
+      } else {
+        spawnBloodDecal(z.mesh.position.x, z.mesh.position.z);
+        showToast("Melee hit", 0.7);
+      }
+      break;
+    }
   }
 }
 
@@ -1370,6 +1641,7 @@ function setPaused(on) {
     document.exitPointerLock?.();
     syncPauseRadiosFromGame();
   }
+  syncTouchUi();
   updateCrosshairVisible();
 }
 
@@ -1392,7 +1664,7 @@ function snapGameplayCamera() {
     camera.up.set(0, 1, 0);
     camera.rotation.order = "YXZ";
     camera.rotation.y = cameraYaw;
-    camera.rotation.x = cameraPitch;
+    camera.rotation.x = lookPitch;
     camera.rotation.z = 0;
   } else {
     computeThirdPersonCameraPosition(thirdCamPos, camLookTmp);
@@ -1501,7 +1773,7 @@ function resetGame(quickRestart = false) {
   }
   bloodDecals = [];
   playerGroup.position.set(0, 0, 0);
-  playerGroup.rotation.y = 0;
+  playerGroup.rotation.y = Math.PI;
   playerWalkPhase = 0;
   playerWalkAmp = 0;
   playerLegL.rotation.x = 0;
@@ -1515,15 +1787,19 @@ function resetGame(quickRestart = false) {
   autoAimTime = 0;
   rapidFireTime = 0;
   ambientPickupTimer = 5;
-  gameTime = 0;
-  nightBlend = 1;
+  gameTime = DAY_CYCLE_SEC * 0.28;
+  nightBlend = 0.08;
+  skyPhaseLabel = "Afternoon";
   currentWeapon = "pistol";
   spawnQueue = 0;
   waveClearTimer = 0;
   spawnDelay = 0;
   extractFuelCollected = 0;
   cameraYaw = 0;
-  cameraPitch = THREE.MathUtils.degToRad(24);
+  orbitPitch = THREE.MathUtils.degToRad(24);
+  lookPitch = 0;
+  meleeCd = 0;
+  meleeAnim = 0;
   initAmmoForRun();
   initFlashlightForRun();
   applyCharacterFromForm();
@@ -1534,13 +1810,14 @@ function resetGame(quickRestart = false) {
   spawnObjectiveFuelCells();
   spawnGateKeyPickup();
   syncJamPortalWorldHeight();
-  if (quickRestart) {
+  const skipIntro = quickRestart || useTouchControls();
+  if (skipIntro) {
     introCameraActive = false;
     introCameraT = 0;
     beginWave();
     playing = true;
     snapGameplayCamera();
-    canvas.requestPointerLock?.();
+    if (!useTouchControls()) canvas.requestPointerLock?.();
   } else {
     introCameraActive = true;
     introCameraT = 0;
@@ -1552,6 +1829,7 @@ function resetGame(quickRestart = false) {
   }
   el.wave.textContent = String(wave);
   updateHud();
+  syncTouchUi();
 }
 
 function updateHud() {
@@ -1590,7 +1868,7 @@ function updateHud() {
     el.rapidBuffTime.textContent = "—";
   }
   el.weaponName.textContent = weaponHudLabel();
-  el.dayNightLabel.textContent = "Dead of night — corrupted tape";
+  el.dayNightLabel.textContent = playing ? skyPhaseLabel : "Sky cycle — day into night";
 }
 
 function gameOver() {
@@ -1600,6 +1878,7 @@ function gameOver() {
   document.exitPointerLock?.();
   el.gameOverStats.textContent = `You reached wave ${wave} and dropped ${kills} of them. Not bad — next run can go further.`;
   el.gameOverOverlay.classList.add("visible");
+  syncTouchUi();
 }
 
 const justPressed = new Set();
@@ -1620,20 +1899,27 @@ window.addEventListener("keyup", (e) => keys.delete(e.code));
 
 let mouseDown = false;
 window.addEventListener("pointerdown", (e) => {
-  if (e.button === 0) mouseDown = true;
+  if (e.pointerType === "touch") return;
+  if (e.button !== 0) return;
+  if (e.target === canvas) mouseDown = true;
 });
 window.addEventListener("pointerup", (e) => {
   if (e.button === 0) mouseDown = false;
 });
-
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+window.addEventListener("pointercancel", () => {
+  mouseDown = false;
 });
 
+function fitViewOnResize() {
+  fitRenderer();
+  syncTouchUi();
+}
+window.addEventListener("resize", fitViewOnResize);
+window.visualViewport?.addEventListener("resize", fitViewOnResize);
+window.visualViewport?.addEventListener("scroll", fitViewOnResize);
+
 function setAimRayNdc() {
-  if (document.pointerLockElement === canvas) {
+  if (document.pointerLockElement === canvas || useTouchControls()) {
     ndc.x = 0;
     ndc.y = 0;
   } else {
@@ -1659,11 +1945,16 @@ function computeShootDirection() {
   }
   setAimRayNdc();
   raycaster.setFromCamera(ndc, camera);
-  raycaster.ray.intersectPlane(groundPlane, aimHit);
-  shootDir.subVectors(aimHit, playerGroup.position);
-  shootDir.y = 0;
-  if (shootDir.lengthSq() < 0.0001) return false;
-  shootDir.normalize();
+  const hit = raycaster.ray.intersectPlane(groundPlane, aimHit);
+  if (hit) {
+    shootDir.subVectors(aimHit, playerGroup.position);
+    shootDir.y = 0;
+    if (shootDir.lengthSq() >= 0.0001) {
+      shootDir.normalize();
+      return true;
+    }
+  }
+  playerLookForward(shootDir);
   return true;
 }
 
@@ -1742,28 +2033,37 @@ function tryShoot() {
 
 let pointerX = window.innerWidth / 2;
 let pointerY = window.innerHeight / 2;
+let ignoreLookUntil = 0;
+document.addEventListener("pointerlockchange", () => {
+  if (document.pointerLockElement === canvas) ignoreLookUntil = performance.now() + 90;
+});
 window.addEventListener("pointermove", (e) => {
   pointerX = e.clientX;
   pointerY = e.clientY;
-  if (playing && !introCameraActive && !paused && document.pointerLockElement === canvas) {
-    // First-person should feel non-inverted, third-person can stay "cinematic".
-    cameraYaw += (cameraPerson === "first" ? 1 : -1) * e.movementX * CAM_MOUSE_SENS;
-    cameraPitch = THREE.MathUtils.clamp(
-      cameraPitch + (cameraPerson === "first" ? -1 : 1) * e.movementY * CAM_MOUSE_SENS * 0.82,
-      CAM_PITCH_MIN,
-      CAM_PITCH_MAX
-    );
+  if (lookTouch.id === e.pointerId) {
+    applyLookDelta(e.clientX - lookTouch.x, e.clientY - lookTouch.y, CAM_TOUCH_SENS);
+    lookTouch.x = e.clientX;
+    lookTouch.y = e.clientY;
+    return;
   }
+  if (joy.id === e.pointerId) {
+    updateJoyFromEvent(e);
+    return;
+  }
+  if (!(playing && !introCameraActive && !paused && document.pointerLockElement === canvas)) return;
+  if (performance.now() < ignoreLookUntil) return;
+  applyLookDelta(e.movementX, e.movementY, CAM_MOUSE_SENS);
 });
 
 canvas.addEventListener("click", () => {
+  if (useTouchControls()) return;
   if (playing && !introCameraActive && !paused && document.pointerLockElement !== canvas) {
     canvas.requestPointerLock?.();
   }
 });
 
 function updatePlayer(dt, nightForTorch) {
-  camMoveFwd.set(Math.sin(cameraYaw), 0, Math.cos(cameraYaw));
+  playerLookForward(camMoveFwd);
   camMoveRight.crossVectors(camMoveFwd, camWorldUp).normalize();
   let mx = 0;
   let mz = 0;
@@ -1782,6 +2082,16 @@ function updatePlayer(dt, nightForTorch) {
   if (keys.has("KeyD")) {
     mx += camMoveRight.x;
     mz += camMoveRight.z;
+  }
+  if (joy.id != null || Math.hypot(joy.x, joy.y) > 0.08) {
+    const jlen = Math.hypot(joy.x, joy.y);
+    if (jlen > 0.08) {
+      const jx = joy.x / jlen;
+      const jy = joy.y / jlen;
+      const mag = Math.min(1, jlen);
+      mx += (-jy * camMoveFwd.x + jx * camMoveRight.x) * mag;
+      mz += (-jy * camMoveFwd.z + jx * camMoveRight.z) * mag;
+    }
   }
   const len = Math.hypot(mx, mz);
   const speed = playerMoveSpeed;
@@ -1809,6 +2119,8 @@ function updatePlayer(dt, nightForTorch) {
   playerLegR.rotation.x = -sWalk * 0.52 * playerWalkAmp;
   playerTorso.position.y = bob * 0.052 * playerWalkAmp;
   playerTorso.rotation.z = sWalk * 0.038 * playerWalkAmp;
+  meleeAnim = Math.max(0, meleeAnim - dt * 4.2);
+  playerTorso.rotation.y = Math.sin(meleeAnim * Math.PI) * 0.85;
 
   if (cameraPerson === "first") {
     if (autoAimTime > 0) {
@@ -1816,7 +2128,7 @@ function updatePlayer(dt, nightForTorch) {
       if (z) {
         tmpV.set(z.mesh.position.x - playerGroup.position.x, 0, z.mesh.position.z - playerGroup.position.z);
         if (tmpV.lengthSq() > 1e-6) {
-          const targetY = Math.atan2(tmpV.x, tmpV.z);
+          const targetY = Math.atan2(-tmpV.x, -tmpV.z);
           let delta = targetY - cameraYaw;
           while (delta > Math.PI) delta -= Math.PI * 2;
           while (delta < -Math.PI) delta += Math.PI * 2;
@@ -1824,7 +2136,7 @@ function updatePlayer(dt, nightForTorch) {
         }
       }
     }
-    playerGroup.rotation.y = cameraYaw;
+    playerGroup.rotation.y = cameraYaw + Math.PI;
     camera.position.set(
       playerGroup.position.x,
       playerGroup.position.y + FP_EYE_Y,
@@ -1833,7 +2145,7 @@ function updatePlayer(dt, nightForTorch) {
     camera.up.set(0, 1, 0);
     camera.rotation.order = "YXZ";
     camera.rotation.y = cameraYaw;
-    camera.rotation.x = cameraPitch;
+    camera.rotation.x = lookPitch;
     camera.rotation.z = 0;
   } else {
     setAimRayNdc();
@@ -1876,7 +2188,7 @@ function updatePlayer(dt, nightForTorch) {
   playerTorchSpot.target.updateMatrixWorld();
   playerTorchSpot.updateMatrixWorld();
 
-  const torchK = Math.pow(Math.min(1, nightForTorch), 0.98);
+  const torchK = THREE.MathUtils.clamp(0.22 + 0.78 * Math.min(1, nightForTorch), 0, 1);
   const batK = flashlightOn ? THREE.MathUtils.clamp(flashlightBattery / FLASH_BAT_MAX, 0, 1) : 0;
   const beamK = torchK * (0.15 + 0.85 * batK);
   playerTorchSpot.intensity = THREE.MathUtils.lerp(14, 54, beamK);
@@ -1896,38 +2208,76 @@ function updatePlayer(dt, nightForTorch) {
 }
 
 function updateDayNight(dt) {
-  if (!playing) return undefined;
-  gameTime += dt;
-  nightBlend = 1;
+  if (!playing) return nightBlend;
+  if (!paused) gameTime += dt;
+  const cycle = ((gameTime % DAY_CYCLE_SEC) + DAY_CYCLE_SEC) % DAY_CYCLE_SEC;
+  const u = cycle / DAY_CYCLE_SEC;
 
-  const tape = 1 + Math.sin(flickerT * 1.65) * 0.032 + Math.sin(flickerT * 31) * 0.005;
-  scene.background.setHex(0x020003);
+  let night = 0;
+  if (u < 0.1) {
+    night = 1 - u / 0.1;
+    skyPhaseLabel = "Dawn";
+  } else if (u < 0.36) {
+    night = 0;
+    skyPhaseLabel = u < 0.2 ? "Morning" : "Afternoon";
+  } else if (u < 0.48) {
+    night = (u - 0.36) / 0.12;
+    skyPhaseLabel = "Dusk";
+  } else if (u < 0.86) {
+    night = 1;
+    skyPhaseLabel = u < 0.58 ? "Nightfall" : "Dead of night";
+  } else {
+    night = 1 - (u - 0.86) / 0.14;
+    skyPhaseLabel = "Predawn";
+  }
+  nightBlend = THREE.MathUtils.smoothstep(0, 1, THREE.MathUtils.clamp(night, 0, 1));
+
+  const dayK = 1 - nightBlend;
+  const tape = 1 + Math.sin(flickerT * 1.65) * 0.02 * nightBlend + Math.sin(flickerT * 31) * 0.004 * nightBlend;
+  const duskAmt = THREE.MathUtils.clamp(1 - Math.abs(u - 0.42) / 0.08, 0, 1);
+  const dawnAmt = THREE.MathUtils.clamp(1 - Math.abs(u - 0.04) / 0.08, 0, 1);
+
+  skyWork.copy(skyDay).lerp(skyNight, nightBlend);
+  skyWork.lerp(skyDusk, duskAmt * 0.45);
+  skyWork.lerp(skyDawn, dawnAmt * 0.35);
+  scene.background.copy(skyWork);
 
   if (scene.fog instanceof THREE.FogExp2) {
-    // Dead-of-night: visibility is almost zero without the flashlight.
-    scene.fog.density = (0.058 + Math.sin(flickerT * 2.15) * 0.0045) * tape;
-    scene.fog.color.setHex(0x010001);
+    scene.fog.density = THREE.MathUtils.lerp(0.012, 0.048, nightBlend) * tape;
+    scene.fog.color.copy(skyWork).multiplyScalar(0.55 + 0.2 * dayK);
   }
 
-  ambient.intensity = 0.018;
-  ambient.color.setHex(0x0c0a14);
+  ambient.intensity = THREE.MathUtils.lerp(0.42, 0.03, nightBlend);
+  ambient.color.setRGB(
+    THREE.MathUtils.lerp(0.72, 0.07, nightBlend),
+    THREE.MathUtils.lerp(0.78, 0.06, nightBlend),
+    THREE.MathUtils.lerp(0.92, 0.1, nightBlend)
+  );
 
-  hemi.intensity = 0.032;
-  fill.intensity = 0.01;
+  hemi.intensity = THREE.MathUtils.lerp(0.55, 0.05, nightBlend);
+  hemi.color.set(nightBlend > 0.55 ? 0x202040 : 0xc8d8f0);
+  hemi.groundColor.set(nightBlend > 0.55 ? 0x080604 : 0x3a3428);
 
-  playerLantern.intensity = 1.25;
+  fill.intensity = THREE.MathUtils.lerp(0.22, 0.02, nightBlend);
+  playerLantern.intensity = THREE.MathUtils.lerp(0.15, 1.15, nightBlend);
+  sick.intensity = THREE.MathUtils.lerp(0.04, 0.16, nightBlend) + Math.sin(flickerT * 2.35) * 0.03 * nightBlend;
 
-  sick.intensity = 0.14 + Math.sin(flickerT * 2.35) * 0.05;
+  const sunAng = u * Math.PI * 2;
+  moon.position.set(Math.cos(sunAng) * 78, Math.sin(sunAng) * 86, 28);
+  if (moon.position.y < 10) {
+    moon.position.y = 10 + (10 - moon.position.y) * 0.08;
+  }
+  moon.intensity = THREE.MathUtils.lerp(1.15, 0.08, nightBlend);
+  moon.color.set(nightBlend > 0.5 ? 0xc8c0e8 : 0xfff0d2);
 
-  moon.intensity = 0.045 + Math.sin(flickerT * 0.8) * 0.018;
+  renderer.toneMappingExposure = THREE.MathUtils.lerp(1.12, 0.78, nightBlend);
 
-  const gMul = 0.18;
-  ground.material.color.setRGB(gMul, gMul * 0.92, gMul * 0.9);
+  const gMul = THREE.MathUtils.lerp(1, 0.22, nightBlend);
+  ground.material.color.setRGB(gMul, gMul * 0.96, gMul * 0.9);
 
-  zombieEyes.color.setHex(0xff2424);
-
-  foliageMat.color.setHex(0x0c1810);
-  trunkMat.color.setHex(0x181210);
+  zombieEyes.color.setHex(nightBlend > 0.35 ? 0xff2424 : 0x441010);
+  foliageMat.color.setHex(nightBlend > 0.5 ? 0x0c1810 : 0x2d9a55);
+  trunkMat.color.setHex(nightBlend > 0.5 ? 0x181210 : 0x3d2e22);
 
   return nightBlend;
 }
@@ -2042,7 +2392,7 @@ function frame(now) {
     meleeCd = Math.max(0, meleeCd - dt);
     if (justPressed.has("KeyF")) toggleFlashlight();
     if (justPressed.has("KeyV")) tryMelee();
-    if (mouseDown) tryShoot();
+    if (mouseDown || touchFireHeld) tryShoot();
     updateFlashlight(dt);
     const nb = updateDayNight(dt);
     updatePlayer(dt, nb ?? nightBlend);
@@ -2065,10 +2415,11 @@ function frame(now) {
     camera.lookAt(introLookCur);
     if (introCameraT >= 1) {
       introCameraActive = false;
-      playerGroup.rotation.y = 0;
+      playerGroup.rotation.y = Math.PI;
       cameraYaw = 0;
       beginWave();
       snapGameplayCamera();
+      syncTouchUi();
     }
     justPressed.clear();
   } else if (playing && paused) {
@@ -2135,5 +2486,7 @@ el.cameraThird?.addEventListener("change", () => {
 });
 
 applyMenuCamera();
+bindTouchControls();
+syncTouchUi();
 
 requestAnimationFrame(frame);

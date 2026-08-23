@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta http-equiv="Cache-Control" content="no-store, max-age=0" />
     <title>Zombie Survivor — night extract</title>
     <style>
@@ -13,10 +16,15 @@
       html,
       body {
         height: 100%;
+        height: 100dvh;
         overflow: hidden;
         font-family: ui-sans-serif, system-ui, sans-serif;
         background: #1e2630;
         color: #d8e0e8;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
       }
       canvas {
         display: block;
@@ -26,6 +34,7 @@
         height: 100%;
         z-index: 0;
         cursor: crosshair;
+        touch-action: none;
       }
       .crosshair {
         position: fixed;
@@ -190,8 +199,14 @@
         color: #d8e8d8;
         cursor: pointer;
       }
-      .card button:hover {
-        background: #243024;
+      .customize input[type="text"],
+      .customize input[type="color"],
+      .customize input[type="range"],
+      button,
+      input {
+        -webkit-user-select: text;
+        user-select: text;
+        touch-action: manipulation;
       }
       .customize {
         text-align: left;
@@ -304,6 +319,11 @@
         opacity: 0.65;
         line-height: 1.4;
       }
+      .pause-overlay,
+      .overlay,
+      .launcher-bar {
+        touch-action: auto;
+      }
       .pause-overlay {
         position: fixed;
         inset: 0;
@@ -386,6 +406,185 @@
           linear-gradient(92deg, rgba(120, 0, 0, 0.07), transparent 40%, rgba(0, 40, 120, 0.08));
         pointer-events: none;
       }
+      .touch-ui {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        pointer-events: none;
+      }
+      .touch-ui[hidden] {
+        display: none !important;
+      }
+      .look-pad {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 58%;
+        height: 100%;
+        pointer-events: auto;
+        touch-action: none;
+        z-index: 1;
+      }
+      .joy-pad {
+        position: absolute;
+        left: max(0.4rem, env(safe-area-inset-left));
+        bottom: max(0.55rem, env(safe-area-inset-bottom));
+        width: 9.5rem;
+        height: 9.5rem;
+        pointer-events: auto;
+        touch-action: none;
+        z-index: 3;
+      }
+      .joy-ring {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 7.2rem;
+        height: 7.2rem;
+        margin: -3.6rem 0 0 -3.6rem;
+        border-radius: 999px;
+        border: 2px solid rgba(180, 255, 220, 0.28);
+        background: rgba(6, 10, 12, 0.35);
+        box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.35);
+      }
+      .joy-knob {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 2.55rem;
+        height: 2.55rem;
+        margin: -1.275rem 0 0 -1.275rem;
+        border-radius: 999px;
+        background: rgba(180, 230, 210, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        transform: translate(0, 0);
+        will-change: transform;
+      }
+      .touch-actions {
+        position: absolute;
+        right: max(0.45rem, env(safe-area-inset-right));
+        bottom: max(0.55rem, env(safe-area-inset-bottom));
+        display: flex;
+        align-items: flex-end;
+        gap: 0.55rem;
+        pointer-events: auto;
+        z-index: 4;
+      }
+      .touch-btn {
+        font: inherit;
+        min-width: 3.4rem;
+        min-height: 3.4rem;
+        padding: 0.45rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid rgba(120, 255, 200, 0.28);
+        background: rgba(12, 22, 18, 0.78);
+        color: #d8ece4;
+        font-size: 0.72rem;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        pointer-events: auto;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .touch-btn:active,
+      .touch-btn.held {
+        background: rgba(28, 72, 48, 0.92);
+      }
+      .touch-fire {
+        min-width: 4.6rem;
+        min-height: 4.6rem;
+        font-size: 0.82rem;
+        font-weight: 650;
+        background: rgba(90, 28, 22, 0.82);
+        border-color: rgba(255, 160, 120, 0.4);
+      }
+      .touch-icon-btn {
+        position: absolute;
+        top: max(0.45rem, env(safe-area-inset-top));
+        right: max(0.45rem, env(safe-area-inset-right));
+        pointer-events: auto;
+        font: inherit;
+        min-width: 2.8rem;
+        min-height: 2.8rem;
+        padding: 0.35rem 0.55rem;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(8, 12, 14, 0.78);
+        color: #e8f0e8;
+        font-size: 0.78rem;
+        touch-action: manipulation;
+      }
+      .pause-card {
+        max-height: min(34rem, calc(100dvh - 2rem));
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      @media (max-width: 720px), (pointer: coarse) {
+        .hud {
+          padding: max(0.45rem, env(safe-area-inset-top)) 0.7rem 0.4rem;
+        }
+        .hud-top {
+          gap: 0.4rem;
+        }
+        .stat,
+        .stat.objective-line,
+        .stat.daynight-line {
+          font-size: 0.72rem;
+          max-width: 70vw;
+        }
+        .health-bar {
+          width: 8.2rem;
+          height: 0.38rem;
+        }
+        .hint {
+          display: none;
+        }
+        .toast {
+          bottom: 34%;
+          font-size: 0.8rem;
+          max-width: calc(100vw - 2rem);
+          text-align: center;
+        }
+        .launcher-bar {
+          left: 50%;
+          right: auto;
+          bottom: max(1rem, env(safe-area-inset-bottom));
+          transform: translateX(-50%);
+          max-width: min(22rem, calc(100vw - 1.2rem));
+          width: calc(100vw - 1.2rem);
+        }
+        .launcher-bar button {
+          min-height: 2.6rem;
+          flex: 1;
+        }
+        .card {
+          padding: 1.35rem 1.2rem;
+          max-width: calc(100vw - 1.4rem);
+        }
+        .pause-sub {
+          display: none;
+        }
+      }
+      @media (max-height: 500px) and (orientation: landscape) {
+        .joy-pad {
+          width: 7.2rem;
+          height: 7.2rem;
+        }
+        .joy-ring {
+          width: 5.6rem;
+          height: 5.6rem;
+          margin: -2.8rem 0 0 -2.8rem;
+        }
+        .touch-fire {
+          min-width: 3.8rem;
+          min-height: 3.8rem;
+        }
+        .stat.buff,
+        .stat.buff-fire,
+        .stat.objective-line {
+          display: none;
+        }
+      }
     </style>
   </head>
   <body>
@@ -422,9 +621,9 @@
             <strong>Sky</strong> <span id="dayNightLabel">Dead of night</span>
           </div>
         </div>
-        <div class="hint">
+        <div class="hint" id="desktopHint">
           <strong>Look</strong>: click the game to capture the mouse. <strong>WASD</strong> moves relative where you’re facing.
-          <strong>Esc</strong> — pause, camera mode &amp; character. <strong>F</strong> flashlight (finite battery). <strong>V</strong> melee (break barrels).
+          <strong>Esc</strong> — pause, camera mode &amp; character. <strong>F</strong> flashlight (finite battery). <strong>V</strong> melee (zombies &amp; barrels).
         </div>
       </div>
     </div>
@@ -434,13 +633,28 @@
       <div class="launcher-actions">
         <button type="button" id="launcherPlay" class="primary">Play</button>
       </div>
-      <div class="launcher-hint">Small bar only — full map stays visible. After starting, use Esc for options &amp; first/third person.</div>
+      <div class="launcher-hint" id="launcherHint">On phone: left stick moves, right drag looks, Fire / Melee / Flash. On desktop: click to look, WASD, Esc pause.</div>
+    </div>
+
+    <div class="touch-ui" id="touchUi" hidden>
+      <button type="button" id="touchPause" class="touch-icon-btn" aria-label="Pause">Pause</button>
+      <div class="look-pad" id="lookPad" aria-hidden="true"></div>
+      <div class="joy-pad" id="joyPad" aria-label="Move">
+        <div class="joy-ring" id="joyRing">
+          <div class="joy-knob" id="joyKnob"></div>
+        </div>
+      </div>
+      <div class="touch-actions">
+        <button type="button" id="touchFlash" class="touch-btn">Flash</button>
+        <button type="button" id="touchMelee" class="touch-btn">Melee</button>
+        <button type="button" id="touchFire" class="touch-btn touch-fire">Fire</button>
+      </div>
     </div>
 
     <div class="pause-overlay" id="pauseOverlay" aria-hidden="true" role="dialog" aria-label="Paused">
       <div class="pause-card">
         <h2>Paused</h2>
-        <div class="pause-sub">Esc to resume. Change view · character · portal handoff fields.</div>
+        <div class="pause-sub">Esc or Resume. Change view · character · portal handoff fields.</div>
         <div class="cam-row">
           <span style="font-size: 0.78rem; opacity: 0.85">Camera</span>
           <label><input type="radio" name="cameraPerson" id="cameraThird" value="third" checked /> Third person</label>
