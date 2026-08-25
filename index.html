@@ -26,7 +26,7 @@
         user-select: none;
         -webkit-touch-callout: none;
       }
-      canvas {
+      #gameCanvas {
         display: block;
         position: fixed;
         inset: 0;
@@ -115,6 +115,56 @@
         color: #9be0c8;
         max-width: 20rem;
         font-size: 0.84rem;
+      }
+      .hud-right {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.45rem;
+      }
+      .minimap-wrap {
+        display: none;
+        position: relative;
+        width: 9.5rem;
+        height: 9.5rem;
+        border: 2px solid rgba(90, 140, 110, 0.55);
+        border-radius: 3px;
+        background: #020604;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.85), 0 4px 14px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+      }
+      .hud.playing .minimap-wrap {
+        display: block;
+      }
+      .hud.playing .hint {
+        display: none;
+      }
+      .hud.playing #objectiveRow,
+      .hud.playing #dayNightRow {
+        display: none;
+      }
+      #minimap {
+        display: block;
+        position: relative;
+        inset: auto;
+        width: 100%;
+        height: 100%;
+        z-index: auto;
+        cursor: default;
+        touch-action: none;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+      }
+      .minimap-label {
+        position: absolute;
+        left: 0.28rem;
+        top: 0.18rem;
+        font-size: 0.58rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: rgba(160, 210, 170, 0.7);
+        text-shadow: 0 1px 2px #000;
+        pointer-events: none;
       }
       .toast {
         position: fixed;
@@ -579,6 +629,10 @@
           width: 8.2rem;
           height: 0.38rem;
         }
+        .minimap-wrap {
+          width: 7.4rem;
+          height: 7.4rem;
+        }
         .hint {
           display: none;
         }
@@ -637,7 +691,7 @@
     <div class="toast" id="toast" role="status"></div>
     <div class="hud">
       <div class="hud-top">
-        <div>
+        <div class="hud-left" id="hudLeft">
           <div class="stat"><strong>Wave</strong> <span id="wave">1</span></div>
           <div class="stat"><strong>Alive</strong> <span id="alive">0</span></div>
           <div class="stat"><strong>Kills</strong> <span id="kills">0</span></div>
@@ -657,6 +711,9 @@
           <div class="stat ammo-line" id="flashRow">
             <strong>Flash</strong> <span id="flashText">—</span>
           </div>
+          <div class="stat" id="keysRow">
+            <strong>Keys</strong> <span id="keysText">0/4</span>
+          </div>
           <div class="stat objective-line" id="objectiveRow">
             <strong>Objective</strong> <span id="objectiveText">Find four keys. Each key makes nights harder. Extract west.</span>
           </div>
@@ -664,9 +721,15 @@
             <strong>Sky</strong> <span id="dayNightLabel">—</span>
           </div>
         </div>
-        <div class="hint" id="desktopHint">
-          <strong>Look</strong>: click the game to capture the mouse. <strong>WASD</strong> moves relative where you’re facing.
-          <strong>Esc</strong> — pause, camera mode &amp; character. <strong>F</strong> flashlight (finite battery). <strong>V</strong> melee (zombies &amp; barrels).
+        <div class="hud-right">
+          <div class="minimap-wrap" id="minimapWrap" aria-label="Exploration map">
+            <canvas id="minimap" width="128" height="128"></canvas>
+            <div class="minimap-label">Map</div>
+          </div>
+          <div class="hint" id="desktopHint">
+            <strong>Look</strong>: click the game to capture the mouse. <strong>WASD</strong> moves relative where you’re facing.
+            <strong>Esc</strong> — pause, camera mode &amp; character. <strong>F</strong> flashlight (finite battery). <strong>V</strong> melee (zombies &amp; barrels).
+          </div>
         </div>
       </div>
     </div>
@@ -676,7 +739,7 @@
       <div class="diff-row" role="radiogroup" aria-label="Difficulty">
         <span class="diff-label">Difficulty</span>
         <div class="diff-options">
-          <label><input type="radio" name="gameDifficulty" id="diffCasual" value="casual" /> Casual — more ammo &amp; action</label>
+          <label><input type="radio" name="gameDifficulty" id="diffCasual" value="casual" /> Casual — day hordes, more loot</label>
           <label><input type="radio" name="gameDifficulty" id="diffSurvival" value="survival" checked /> Survival — default nights</label>
         </div>
         <p class="diff-desc" id="diffDesc">Survival: scarce ammo, brutal nights, keys make each wave worse.</p>
@@ -734,6 +797,6 @@
         <button type="button" id="restartBtn">Try again</button>
       </div>
     </div>
-    <script type="module" src="./survivor-tp3.mjs?v=17"></script>
+    <script type="module" src="./survivor-tp3.mjs?v=21"></script>
   </body>
 </html>

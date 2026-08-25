@@ -42,6 +42,9 @@ const el = {
   ammoText: document.getElementById("ammoText"),
   flashText: document.getElementById("flashText"),
   objectiveText: document.getElementById("objectiveText"),
+  keysText: document.getElementById("keysText"),
+  hudRoot: document.querySelector(".hud"),
+  minimap: document.getElementById("minimap"),
   touchUi: document.getElementById("touchUi"),
   lookPad: document.getElementById("lookPad"),
   joyPad: document.getElementById("joyPad"),
@@ -50,6 +53,220 @@ const el = {
   touchFlash: document.getElementById("touchFlash"),
   touchMelee: document.getElementById("touchMelee"),
   touchFire: document.getElementById("touchFire"),
+};
+
+/** Procedural SFX only (no music). Unlocks on first user gesture. */
+let audioCtx = null;
+/** @type {GainNode | null} */
+let masterGain = null;
+const sfxLast = Object.create(null);
+
+function ensureAudio() {
+  try {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      audioCtx = new AC();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 0.38;
+      masterGain.connect(audioCtx.destination);
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch {
+    return null;
+  }
+  return audioCtx;
+}
+
+function sfxOk(tag, cooldown = 0.05) {
+  const ctx = ensureAudio();
+  if (!ctx || !masterGain) return null;
+  const t = ctx.currentTime;
+  if ((sfxLast[tag] ?? 0) > t) return null;
+  sfxLast[tag] = t + cooldown;
+  return ctx;
+}
+
+function sfxEnv(gainNode, t0, peak, attack, hold, release) {
+  const g = gainNode.gain;
+  g.cancelScheduledValues(t0);
+  g.setValueAtTime(0.0001, t0);
+  g.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0 + attack);
+  g.exponentialRampToValueAtTime(Math.max(0.0002, peak * 0.85), t0 + attack + hold);
+  g.exponentialRampToValueAtTime(0.0001, t0 + attack + hold + release);
+}
+
+function sfxTone({
+  freq = 440,
+  freqEnd = null,
+  type = "square",
+  dur = 0.12,
+  peak = 0.12,
+  attack = 0.005,
+  release = 0.08,
+  when = 0,
+}) {
+  const ctx = ensureAudio();
+  if (!ctx || !masterGain) return;
+  const t0 = ctx.currentTime + when;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  if (freqEnd != null) osc.frequency.exponentialRampToValueAtTime(Math.max(20, freqEnd), t0 + dur);
+  sfxEnv(g, t0, peak, attack, Math.max(0.01, dur - attack - release), release);
+  osc.connect(g);
+  g.connect(masterGain);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.05);
+}
+
+function sfxNoise({
+  dur = 0.12,
+  peak = 0.15,
+  attack = 0.002,
+  release = 0.1,
+  filterFreq = 1800,
+  filterType = "bandpass",
+  Q = 0.8,
+  when = 0,
+}) {
+  const ctx = ensureAudio();
+  if (!ctx || !masterGain) return;
+  const t0 = ctx.currentTime + when;
+  const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const filter = ctx.createBiquadFilter();
+  filter.type = filterType;
+  filter.frequency.value = filterFreq;
+  filter.Q.value = Q;
+  const g = ctx.createGain();
+  sfxEnv(g, t0, peak, attack, Math.max(0.01, dur - attack - release), release);
+  src.connect(filter);
+  filter.connect(g);
+  g.connect(masterGain);
+  src.start(t0);
+  src.stop(t0 + dur + 0.02);
+}
+
+const Sfx = {
+  shootPistol() {
+    if (!sfxOk("shoot", 0.04)) return;
+    sfxNoise({ dur: 0.07, peak: 0.22, filterFreq: 2200, filterType: "bandpass", Q: 1.2 });
+    sfxTone({ freq: 320, freqEnd: 90, type: "square", dur: 0.08, peak: 0.08 });
+  },
+  shootShotgun() {
+    if (!sfxOk("shoot", 0.08)) return;
+    sfxNoise({ dur: 0.18, peak: 0.32, filterFreq: 900, filterType: "lowpass", Q: 0.6 });
+    sfxNoise({ dur: 0.1, peak: 0.18, filterFreq: 2800, filterType: "highpass", Q: 0.7, when: 0.02 });
+    sfxTone({ freq: 140, freqEnd: 55, type: "sawtooth", dur: 0.14, peak: 0.1 });
+  },
+  shootSmg() {
+    if (!sfxOk("shoot", 0.03)) return;
+    sfxNoise({ dur: 0.045, peak: 0.16, filterFreq: 2600, filterType: "bandpass", Q: 1.4 });
+    sfxTone({ freq: 480, freqEnd: 160, type: "square", dur: 0.05, peak: 0.06 });
+  },
+  dryFire() {
+    if (!sfxOk("dry", 0.12)) return;
+    sfxTone({ freq: 180, freqEnd: 120, type: "triangle", dur: 0.06, peak: 0.05 });
+    sfxNoise({ dur: 0.04, peak: 0.06, filterFreq: 4000, filterType: "highpass" });
+  },
+  meleeSwing() {
+    if (!sfxOk("meleeSwing", 0.15)) return;
+    sfxNoise({ dur: 0.12, peak: 0.12, filterFreq: 700, filterType: "bandpass", Q: 0.5 });
+    sfxTone({ freq: 220, freqEnd: 90, type: "sawtooth", dur: 0.1, peak: 0.04 });
+  },
+  meleeHit() {
+    if (!sfxOk("meleeHit", 0.08)) return;
+    sfxNoise({ dur: 0.1, peak: 0.22, filterFreq: 500, filterType: "lowpass" });
+    sfxTone({ freq: 110, freqEnd: 50, type: "square", dur: 0.09, peak: 0.1 });
+  },
+  zombieHit() {
+    if (!sfxOk("zHit", 0.045)) return;
+    sfxNoise({ dur: 0.05, peak: 0.1, filterFreq: 1200, filterType: "bandpass" });
+    sfxTone({ freq: 160, freqEnd: 80, type: "triangle", dur: 0.06, peak: 0.04 });
+  },
+  zombieDeath() {
+    if (!sfxOk("zDeath", 0.06)) return;
+    sfxNoise({ dur: 0.16, peak: 0.2, filterFreq: 350, filterType: "lowpass" });
+    sfxTone({ freq: 140, freqEnd: 40, type: "sawtooth", dur: 0.18, peak: 0.09 });
+  },
+  playerHurt() {
+    if (!sfxOk("hurt", 0.12)) return;
+    sfxTone({ freq: 220, freqEnd: 70, type: "sawtooth", dur: 0.16, peak: 0.14 });
+    sfxNoise({ dur: 0.12, peak: 0.12, filterFreq: 800, filterType: "bandpass" });
+  },
+  pickup() {
+    if (!sfxOk("pickup", 0.05)) return;
+    sfxTone({ freq: 660, freqEnd: 990, type: "sine", dur: 0.1, peak: 0.08, attack: 0.01, release: 0.07 });
+  },
+  pickupKey() {
+    if (!sfxOk("key", 0.1)) return;
+    sfxTone({ freq: 520, type: "sine", dur: 0.08, peak: 0.1, when: 0 });
+    sfxTone({ freq: 780, type: "sine", dur: 0.1, peak: 0.1, when: 0.08 });
+    sfxTone({ freq: 1040, type: "sine", dur: 0.14, peak: 0.09, when: 0.16 });
+  },
+  pickupPower() {
+    if (!sfxOk("power", 0.08)) return;
+    sfxTone({ freq: 300, freqEnd: 600, type: "triangle", dur: 0.14, peak: 0.09 });
+    sfxTone({ freq: 450, freqEnd: 900, type: "sine", dur: 0.16, peak: 0.06, when: 0.04 });
+  },
+  pickupHeal() {
+    if (!sfxOk("heal", 0.08)) return;
+    sfxTone({ freq: 400, freqEnd: 720, type: "sine", dur: 0.18, peak: 0.09 });
+  },
+  battery() {
+    if (!sfxOk("bat", 0.08)) return;
+    sfxTone({ freq: 240, freqEnd: 480, type: "square", dur: 0.1, peak: 0.06 });
+    sfxNoise({ dur: 0.06, peak: 0.05, filterFreq: 3500, filterType: "highpass", when: 0.04 });
+  },
+  barrel() {
+    if (!sfxOk("barrel", 0.08)) return;
+    sfxNoise({ dur: 0.2, peak: 0.28, filterFreq: 450, filterType: "lowpass", Q: 0.5 });
+    sfxTone({ freq: 90, freqEnd: 40, type: "square", dur: 0.15, peak: 0.1 });
+  },
+  flashOn() {
+    if (!sfxOk("flash", 0.08)) return;
+    sfxTone({ freq: 180, freqEnd: 520, type: "sine", dur: 0.09, peak: 0.06 });
+  },
+  flashOff() {
+    if (!sfxOk("flash", 0.08)) return;
+    sfxTone({ freq: 420, freqEnd: 140, type: "sine", dur: 0.09, peak: 0.05 });
+  },
+  flashDead() {
+    if (!sfxOk("flashDead", 0.2)) return;
+    sfxTone({ freq: 160, freqEnd: 70, type: "triangle", dur: 0.2, peak: 0.07 });
+  },
+  nightHorde() {
+    if (!sfxOk("night", 0.8)) return;
+    sfxTone({ freq: 70, freqEnd: 45, type: "sawtooth", dur: 0.45, peak: 0.1 });
+    sfxNoise({ dur: 0.4, peak: 0.12, filterFreq: 200, filterType: "lowpass", when: 0.05 });
+  },
+  gateOpen() {
+    if (!sfxOk("gate", 0.4)) return;
+    sfxTone({ freq: 180, freqEnd: 360, type: "triangle", dur: 0.25, peak: 0.1 });
+    sfxTone({ freq: 240, freqEnd: 480, type: "sine", dur: 0.3, peak: 0.08, when: 0.12 });
+  },
+  gameOver() {
+    if (!sfxOk("over", 0.5)) return;
+    sfxTone({ freq: 280, freqEnd: 90, type: "sawtooth", dur: 0.35, peak: 0.12 });
+    sfxTone({ freq: 200, freqEnd: 60, type: "triangle", dur: 0.45, peak: 0.08, when: 0.1 });
+  },
+  extract() {
+    if (!sfxOk("win", 0.5)) return;
+    sfxTone({ freq: 440, type: "sine", dur: 0.12, peak: 0.09 });
+    sfxTone({ freq: 554, type: "sine", dur: 0.12, peak: 0.09, when: 0.1 });
+    sfxTone({ freq: 659, type: "sine", dur: 0.18, peak: 0.1, when: 0.2 });
+    sfxTone({ freq: 880, type: "sine", dur: 0.28, peak: 0.08, when: 0.32 });
+  },
+  uiClick() {
+    if (!sfxOk("ui", 0.05)) return;
+    sfxTone({ freq: 700, freqEnd: 500, type: "sine", dur: 0.05, peak: 0.05 });
+  },
 };
 
 const canvas = document.getElementById("gameCanvas");
@@ -137,8 +354,8 @@ scene.add(torchTarget);
 
 let torchFlameMesh = null;
 
-const FLASH_REACH = 7.8;
-const FLASH_HARD_CUT = 9.2;
+const FLASH_REACH = 11.5;
+const FLASH_HARD_CUT = 14.5;
 
 function terrainHeightAt(x, z) {
   return (
@@ -525,16 +742,20 @@ const DIFF = {
     zombieSpeedMul: 1,
     keySpawnQueueMul: 1,
     spawnDelayMul: 1,
+    powerUpSecMul: 1,
+    dayHorde: false,
   },
   casual: {
     pistolStart: [24, 36],
     shotgunStart: [6, 16],
     smgStart: [18, 64],
-    ammoPickup: { pistol: 12, shotgun: 4, smg: 16 },
-    pickupMax: 42,
-    ambientMax: 11,
-    ambientInterval: [12, 20],
-    killDropChance: 0.24,
+    ammoPickup: { pistol: 18, shotgun: 6, smg: 24 },
+    pickupMax: 56,
+    ambientMax: 16,
+    ambientInterval: [7, 13],
+    killDropChance: 0.38,
+    powerUpSecMul: 1.65,
+    dayHorde: true,
     zombieWaveMul: 1.45,
     zombieHpMul: 0.72,
     zombieDmgMul: 0.6,
@@ -976,6 +1197,176 @@ function spawnScatteredKeys() {
   }
 }
 
+/** Mystery Dungeon–style fog-of-war minimap */
+const MAP_CELL = 14;
+const MAP_HALF = WORLD_LIMIT;
+const MAP_CELLS = Math.ceil((MAP_HALF * 2) / MAP_CELL);
+const MAP_REVEAL_R = 38;
+const exploreGrid = new Uint8Array(MAP_CELLS * MAP_CELLS);
+let minimapCtx = null;
+
+function resetExplorationMap() {
+  exploreGrid.fill(0);
+  if (el.minimap) {
+    minimapCtx = el.minimap.getContext("2d");
+    if (minimapCtx) {
+      minimapCtx.imageSmoothingEnabled = false;
+      minimapCtx.fillStyle = "#020604";
+      minimapCtx.fillRect(0, 0, el.minimap.width, el.minimap.height);
+    }
+  }
+}
+
+function worldToMapCell(x, z) {
+  const cx = Math.floor((x + MAP_HALF) / MAP_CELL);
+  const cz = Math.floor((z + MAP_HALF) / MAP_CELL);
+  return {
+    cx: THREE.MathUtils.clamp(cx, 0, MAP_CELLS - 1),
+    cz: THREE.MathUtils.clamp(cz, 0, MAP_CELLS - 1),
+  };
+}
+
+function isMapCellExplored(cx, cz) {
+  if (cx < 0 || cz < 0 || cx >= MAP_CELLS || cz >= MAP_CELLS) return false;
+  return exploreGrid[cz * MAP_CELLS + cx] !== 0;
+}
+
+function isWorldExplored(x, z) {
+  const { cx, cz } = worldToMapCell(x, z);
+  return isMapCellExplored(cx, cz);
+}
+
+function revealExplorationAround(x, z, radius = MAP_REVEAL_R) {
+  const cellR = Math.ceil(radius / MAP_CELL);
+  const { cx, cz } = worldToMapCell(x, z);
+  const r2 = cellR * cellR;
+  for (let dz = -cellR; dz <= cellR; dz++) {
+    for (let dx = -cellR; dx <= cellR; dx++) {
+      if (dx * dx + dz * dz > r2) continue;
+      const nx = cx + dx;
+      const nz = cz + dz;
+      if (nx < 0 || nz < 0 || nx >= MAP_CELLS || nz >= MAP_CELLS) continue;
+      exploreGrid[nz * MAP_CELLS + nx] = 1;
+    }
+  }
+}
+
+function pickupMinimapColor(kind) {
+  if (kind === "gateKey") return "#ffe566";
+  if (kind === "medKit") return "#7dff9a";
+  if (kind === "battery") return "#ffe0a0";
+  if (kind === "autoAim") return "#7ad8ff";
+  if (kind === "rapidFire") return "#ff9a4a";
+  if (kind === "ammoPistol" || kind === "ammoShotgun" || kind === "ammoSmg") return "#c8d8ff";
+  if (kind === "weaponPistol" || kind === "weaponShotgun" || kind === "weaponSmg") return "#9ab0ff";
+  return "#d0d0d0";
+}
+
+function updateMinimap() {
+  if (!el.minimap || !playing) return;
+  if (!minimapCtx) {
+    minimapCtx = el.minimap.getContext("2d");
+    if (!minimapCtx) return;
+    minimapCtx.imageSmoothingEnabled = false;
+  }
+  const ctx = minimapCtx;
+  const W = el.minimap.width;
+  const H = el.minimap.height;
+  const cellW = W / MAP_CELLS;
+  const cellH = H / MAP_CELLS;
+
+  ctx.fillStyle = "#020604";
+  ctx.fillRect(0, 0, W, H);
+
+  // Explored floor tiles (PMD-style blocky map)
+  for (let cz = 0; cz < MAP_CELLS; cz++) {
+    for (let cx = 0; cx < MAP_CELLS; cx++) {
+      if (!exploreGrid[cz * MAP_CELLS + cx]) continue;
+      const shade = ((cx + cz) & 1) === 0 ? "#1c3a28" : "#163224";
+      ctx.fillStyle = shade;
+      ctx.fillRect(cx * cellW, cz * cellH, Math.ceil(cellW), Math.ceil(cellH));
+    }
+  }
+
+  // Gate wall (west) once any nearby cell is explored
+  {
+    const gateCx = worldToMapCell(GATE_LINE_X, 0).cx;
+    let gateSeen = false;
+    for (let cz = 0; cz < MAP_CELLS; cz++) {
+      if (isMapCellExplored(gateCx, cz) || isMapCellExplored(gateCx - 1, cz)) {
+        gateSeen = true;
+        break;
+      }
+    }
+    if (gateSeen) {
+      ctx.fillStyle = gateUnlocked ? "#6a9a78" : "#4a5560";
+      ctx.fillRect(gateCx * cellW, 0, Math.max(1.5, cellW * 0.55), H);
+    }
+  }
+
+  // Extract portal if explored
+  if (isWorldExplored(EXTRACT_PORTAL_POS.x, EXTRACT_PORTAL_POS.z)) {
+    const { cx, cz } = worldToMapCell(EXTRACT_PORTAL_POS.x, EXTRACT_PORTAL_POS.z);
+    ctx.fillStyle = "#5ef0c8";
+    ctx.fillRect(cx * cellW - 1, cz * cellH - 1, cellW + 2, cellH + 2);
+  }
+
+  // Missed / seen pickups on explored tiles only
+  for (const p of pickups) {
+    const px = p.mesh.position.x;
+    const pz = p.mesh.position.z;
+    if (!isWorldExplored(px, pz)) continue;
+    const { cx, cz } = worldToMapCell(px, pz);
+    const isKey = p.kind === "gateKey";
+    ctx.fillStyle = pickupMinimapColor(p.kind);
+    const s = isKey ? Math.max(2.4, cellW * 0.9) : Math.max(1.6, cellW * 0.55);
+    ctx.fillRect(cx * cellW + (cellW - s) * 0.5, cz * cellH + (cellH - s) * 0.5, s, s);
+  }
+
+  // Nearby zombies (current vision only)
+  for (const z of zombies) {
+    const zx = z.mesh.position.x;
+    const zz = z.mesh.position.z;
+    const dx = zx - playerGroup.position.x;
+    const dz = zz - playerGroup.position.z;
+    if (dx * dx + dz * dz > MAP_REVEAL_R * MAP_REVEAL_R) continue;
+    const { cx, cz } = worldToMapCell(zx, zz);
+    ctx.fillStyle = z.isBoss ? "#ff4466" : "#e05050";
+    const s = z.isBoss ? 2.6 : 1.8;
+    ctx.fillRect(cx * cellW + (cellW - s) * 0.5, cz * cellH + (cellH - s) * 0.5, s, s);
+  }
+
+  // Player arrow (facing)
+  {
+    const { cx, cz } = worldToMapCell(playerGroup.position.x, playerGroup.position.z);
+    const px = (cx + 0.5) * cellW;
+    const py = (cz + 0.5) * cellH;
+    const ang = cameraYaw; // matches look: -sin/-cos → draw tip toward facing
+    const fx = -Math.sin(ang);
+    const fz = -Math.cos(ang);
+    // Screen: +x right, +y down; world +z is down on map
+    const tipX = px + fx * 4.2;
+    const tipY = py + fz * 4.2;
+    const bx = px - fx * 2.4;
+    const by = py - fz * 2.4;
+    const pxL = bx - fz * 2.2;
+    const pyL = by + fx * 2.2;
+    const pxR = bx + fz * 2.2;
+    const pyR = by - fx * 2.2;
+    ctx.fillStyle = "#fff4a8";
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(pxL, pyL);
+    ctx.lineTo(pxR, pyR);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+function syncHudChrome() {
+  if (el.hudRoot) el.hudRoot.classList.toggle("playing", !!playing);
+}
+
 function playerLookForward(out = tmpV) {
   // Matches Three.js camera default (-Z) after yaw around Y.
   return out.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw));
@@ -1161,10 +1552,13 @@ function showToast(msg, dur = 2.2) {
 function toggleFlashlight() {
   if (flashlightBattery <= 0.01) {
     flashlightOn = false;
+    Sfx.flashDead();
     showToast("Battery dead", 1.2);
     return;
   }
   flashlightOn = !flashlightOn;
+  if (flashlightOn) Sfx.flashOn();
+  else Sfx.flashOff();
 }
 
 function initFlashlightForRun() {
@@ -1187,11 +1581,13 @@ function updateFlashlight(dt) {
   flashlightBattery = Math.max(0, flashlightBattery - dt * FLASH_DRAIN_PER_SEC);
   if (flashlightBattery <= 0.001) {
     flashlightOn = false;
+    Sfx.flashDead();
     showToast("Battery dead — you are blind", 1.6);
     return;
   }
   if (!flashlightLowWarned && flashlightBattery / FLASH_BAT_MAX <= 0.2) {
     flashlightLowWarned = true;
+    Sfx.flashOff();
     showToast("Battery low", 1.2);
   }
 }
@@ -1386,15 +1782,16 @@ function spawnPickup(kind, nearX, nearZ, spread = 14, force = false) {
 function randomPickupKind() {
   const r = Math.random();
   if (isCasual()) {
-    if (r < 0.2) return "ammoPistol";
-    if (r < 0.32) return "ammoShotgun";
-    if (r < 0.42) return "ammoSmg";
+    // Heavy on ammo + power-ups (rapid / auto-aim / med / battery)
+    if (r < 0.16) return "ammoPistol";
+    if (r < 0.26) return "ammoShotgun";
+    if (r < 0.36) return "ammoSmg";
     if (r < 0.5) return "rapidFire";
-    if (r < 0.58) return "autoAim";
-    if (r < 0.66) return "medKit";
-    if (r < 0.74) return "battery";
-    if (r < 0.82) return "weaponShotgun";
-    if (r < 0.9) return "weaponSmg";
+    if (r < 0.64) return "autoAim";
+    if (r < 0.76) return "medKit";
+    if (r < 0.86) return "battery";
+    if (r < 0.92) return "weaponShotgun";
+    if (r < 0.97) return "weaponSmg";
     return "weaponPistol";
   }
   if (r < 0.09) return "ammoPistol";
@@ -1426,23 +1823,33 @@ function updatePickups(dt) {
     const dz = p.mesh.position.z - playerGroup.position.z;
     if (dx * dx + dz * dz < PICKUP_PICK_RADIUS * PICKUP_PICK_RADIUS) {
       if (p.kind === "autoAim") {
-        autoAimTime = Math.min(autoAimTime + AUTO_AIM_SEC_PER_PICKUP, AUTO_AIM_MAX_STACK);
+        const add = AUTO_AIM_SEC_PER_PICKUP * diffCfg().powerUpSecMul;
+        autoAimTime = Math.min(autoAimTime + add, AUTO_AIM_MAX_STACK * (isCasual() ? 1.35 : 1));
+        Sfx.pickupPower();
       } else if (p.kind === "rapidFire") {
-        rapidFireTime = Math.min(rapidFireTime + RAPID_FIRE_SEC_PER_PICKUP, RAPID_FIRE_MAX_STACK);
+        const add = RAPID_FIRE_SEC_PER_PICKUP * diffCfg().powerUpSecMul;
+        rapidFireTime = Math.min(rapidFireTime + add, RAPID_FIRE_MAX_STACK * (isCasual() ? 1.35 : 1));
+        Sfx.pickupPower();
       } else if (p.kind === "weaponShotgun") {
         currentWeapon = "shotgun";
+        Sfx.pickup();
       } else if (p.kind === "weaponSmg") {
         currentWeapon = "smg";
+        Sfx.pickup();
       } else if (p.kind === "medKit") {
-        playerHp = Math.min(100, playerHp + MED_KIT_HEAL);
+        const heal = Math.round(MED_KIT_HEAL * (isCasual() ? 1.35 : 1));
+        playerHp = Math.min(100, playerHp + heal);
+        Sfx.pickupHeal();
       } else if (p.kind === "gateKey") {
         keysCollected = Math.min(KEYS_NEEDED, keysCollected + 1);
         const keyQueue = Math.round((2 + keysCollected * 2) * diffCfg().keySpawnQueueMul);
         spawnQueue += Math.max(1, keyQueue);
         if (keysCollected >= KEYS_NEEDED) {
           gateUnlocked = true;
+          Sfx.gateOpen();
           showToast("All keys — west gate is open. The woods go feral.", 2.8);
         } else {
+          Sfx.pickupKey();
           showToast(`Key ${keysCollected}/${KEYS_NEEDED} — nights get worse`, 1.8);
         }
         if (isNightHorde() && hordeEverStarted) {
@@ -1450,16 +1857,21 @@ function updatePickups(dt) {
         }
       } else if (p.kind === "ammoPistol") {
         addAmmo("pistol", diffCfg().ammoPickup.pistol);
+        Sfx.pickup();
       } else if (p.kind === "ammoShotgun") {
         addAmmo("shotgun", diffCfg().ammoPickup.shotgun);
+        Sfx.pickup();
       } else if (p.kind === "ammoSmg") {
         addAmmo("smg", diffCfg().ammoPickup.smg);
+        Sfx.pickup();
       } else if (p.kind === "battery") {
         flashlightBattery = Math.min(FLASH_BAT_MAX, flashlightBattery + FLASH_BAT_PICKUP);
         if (!flashlightOn && flashlightBattery > 0.05) flashlightOn = true;
+        Sfx.battery();
         showToast(`Battery ${Math.round((flashlightBattery / FLASH_BAT_MAX) * 100)}%`, 1.25);
       } else {
         currentWeapon = "pistol";
+        Sfx.pickup();
       }
       scene.remove(p.mesh);
       pickups.splice(i, 1);
@@ -1612,6 +2024,7 @@ function breakBarrel(b) {
     t: BARREL_RESPAWN_MIN + Math.random() * (BARREL_RESPAWN_MAX - BARREL_RESPAWN_MIN),
     avoid,
   });
+  Sfx.barrel();
   return true;
 }
 
@@ -1668,9 +2081,11 @@ function resolveMeleeHit() {
       scene.remove(z.mesh);
       zombies.splice(j, 1);
       kills += 1;
+      Sfx.zombieDeath();
       showToast("Melee kill", 0.85);
     } else {
       spawnBloodDecal(z.mesh.position.x, z.mesh.position.z);
+      Sfx.meleeHit();
       showToast("Melee hit", 0.7);
     }
     return;
@@ -1737,6 +2152,7 @@ function tryMelee() {
   meleeCd = MELEE_CD_SEC;
   meleeAnim = 1;
   meleeHitArmed = true;
+  Sfx.meleeSwing();
 }
 
 function buildZombieGroup(isBoss) {
@@ -2067,13 +2483,14 @@ function syncDifficultyRadiosFromGame() {
 function syncDifficultyDesc() {
   if (!el.diffDesc) return;
   el.diffDesc.textContent = isCasual()
-    ? "Casual: generous ammo, frequent drops, softer hits — hordes lean into action."
+    ? "Casual: day + night hordes, stacked ammo & power-ups, softer hits — pure action."
     : "Survival: scarce ammo, brutal nights, keys make each wave worse.";
 }
 
 function endRun(title, stats) {
   playing = false;
   paused = false;
+  syncHudChrome();
   if (el.pauseOverlay) el.pauseOverlay.classList.remove("visible");
   document.exitPointerLock?.();
   if (el.gameOverTitle) el.gameOverTitle.textContent = title;
@@ -2083,6 +2500,7 @@ function endRun(title, stats) {
 }
 
 function gameOver() {
+  Sfx.gameOver();
   endRun(
     "That run’s over",
     `${difficultyLabel()} — wave ${wave}, ${kills} kills. ${isCasual() ? "Reload for another action run." : "Not bad — next run can go further."}`
@@ -2090,6 +2508,7 @@ function gameOver() {
 }
 
 function winExtract() {
+  Sfx.extract();
   endRun(
     "You extracted",
     `${difficultyLabel()} — out on wave ${wave} with ${kills} kills.`
@@ -2170,6 +2589,7 @@ function resetGame(quickRestart = false) {
   keysCollected = 0;
   hordeWasNight = false;
   hordeEverStarted = false;
+  resetExplorationMap();
   cameraYaw = 0;
   orbitPitch = THREE.MathUtils.degToRad(24);
   lookPitch = 0;
@@ -2202,6 +2622,8 @@ function resetGame(quickRestart = false) {
     playing = true;
   }
   el.wave.textContent = String(wave);
+  revealExplorationAround(playerGroup.position.x, playerGroup.position.z);
+  syncHudChrome();
   updateHud();
   syncTouchUi();
 }
@@ -2227,6 +2649,13 @@ function updateHud() {
       el.objectiveText.textContent = `${difficultyLabel()} — ${keyLine} — Extract west`;
     }
   }
+  if (el.keysText) {
+    el.keysText.textContent = playing
+      ? gateUnlocked
+        ? "Gate open"
+        : `${keysCollected}/${KEYS_NEEDED}`
+      : `0/${KEYS_NEEDED}`;
+  }
   el.healthFill.style.transform = `scaleX(${THREE.MathUtils.clamp(playerHp / 100, 0, 1)})`;
   if (autoAimTime > 0.05) {
     el.buffRow.classList.remove("inactive");
@@ -2244,6 +2673,7 @@ function updateHud() {
   }
   el.weaponName.textContent = weaponHudLabel();
   el.dayNightLabel.textContent = playing ? skyPhaseLabel : "Sky cycle — day into night";
+  updateMinimap();
 }
 
 const justPressed = new Set();
@@ -2371,12 +2801,14 @@ function tryShoot() {
   if (fireCd > 0) return;
   if (!computeShootDirection()) return;
   if (ammoState[currentWeapon].cur < 1) {
+    Sfx.dryFire();
     showToast("Out of ammo", 1.1);
     return;
   }
   if (!tryConsumeAmmoForCurrentWeapon()) return;
 
   if (currentWeapon === "shotgun") {
+    Sfx.shootShotgun();
     spawnMuzzleFlash(1.35);
     const spread = 0.32;
     const pellets = 7;
@@ -2390,6 +2822,8 @@ function tryShoot() {
     return;
   }
 
+  if (currentWeapon === "smg") Sfx.shootSmg();
+  else Sfx.shootPistol();
   spawnMuzzleFlash(currentWeapon === "smg" ? 0.75 : 1);
   const dmg = currentWeapon === "smg" ? 1.0 : 1.15;
   pushBullet(shootDir, dmg);
@@ -2473,6 +2907,7 @@ function updatePlayer(dt, nightForTorch) {
     playerGroup.position.x = GATE_PASS_X;
   }
   playerGroup.position.y = terrainHeightAt(playerGroup.position.x, playerGroup.position.z);
+  revealExplorationAround(playerGroup.position.x, playerGroup.position.z);
 
   const moveStep = Math.hypot(mx, mz);
   const moving = moveStep > 1e-7;
@@ -2583,14 +3018,14 @@ function syncFlashlightRig(nightForTorch) {
       flashRig.add(playerTorchPoint);
     }
     playerTorchPoint.position.set(0, 0, -0.55);
-    playerTorchSpot.intensity = beamOn ? 900 * beamK * THREE.MathUtils.lerp(0.6, 1, nightK) : 0;
+    playerTorchSpot.intensity = beamOn ? 1750 * beamK * THREE.MathUtils.lerp(0.75, 1, nightK) : 0;
     playerTorchSpot.distance = FLASH_HARD_CUT;
-    playerTorchSpot.angle = 0.46;
-    playerTorchSpot.penumbra = 0.3;
-    playerTorchSpot.decay = 1;
-    playerTorchPoint.intensity = beamOn ? 55 * beamK * nightK : 0;
-    playerTorchPoint.distance = 4.2;
-    playerTorchPoint.decay = 1.1;
+    playerTorchSpot.angle = 0.54;
+    playerTorchSpot.penumbra = 0.28;
+    playerTorchSpot.decay = 0.85;
+    playerTorchPoint.intensity = beamOn ? 110 * beamK * THREE.MathUtils.lerp(0.55, 1, nightK) : 0;
+    playerTorchPoint.distance = 6.8;
+    playerTorchPoint.decay = 0.95;
     playerTorchSpot.visible = beamOn;
     playerTorchPoint.visible = beamOn;
   } else {
@@ -2606,9 +3041,9 @@ function syncFlashlightRig(nightForTorch) {
       playerGroup.position.y + 1.15,
       playerGroup.position.z
     );
-    playerTorchPoint.intensity = beamOn ? 95 * beamK * THREE.MathUtils.lerp(0.5, 1, nightK) : 0;
+    playerTorchPoint.intensity = beamOn ? 175 * beamK * THREE.MathUtils.lerp(0.55, 1, nightK) : 0;
     playerTorchPoint.distance = FLASH_HARD_CUT;
-    playerTorchPoint.decay = 0.9;
+    playerTorchPoint.decay = 0.75;
     playerTorchPoint.visible = beamOn;
   }
   flashRig.updateMatrixWorld(true);
@@ -2763,6 +3198,7 @@ function updateZombies(dt) {
     if (d < reach && z.touchCd <= 0) {
       playerHp -= z.dmgPlayer;
       z.touchCd = z.isBoss ? 0.55 : 0.45;
+      Sfx.playerHurt();
       if (playerHp <= 0) {
         playerHp = 0;
         gameOver();
@@ -2810,6 +3246,9 @@ function updateBullets(dt) {
           scene.remove(z.mesh);
           zombies.splice(j, 1);
           kills += 1;
+          Sfx.zombieDeath();
+        } else {
+          Sfx.zombieHit();
         }
         continue outer;
       }
@@ -2818,6 +3257,8 @@ function updateBullets(dt) {
 }
 
 function isNightHorde() {
+  // Casual keeps pressure all day; Survival only during dead of night.
+  if (diffCfg().dayHorde) return true;
   return deepNightBlend > 0.45;
 }
 
@@ -2843,7 +3284,11 @@ function updateWaves(dt) {
     return;
   }
   if (!hordeWasNight) {
-    showToast("Night. The beam is all you have.", 2.6);
+    Sfx.nightHorde();
+    showToast(
+      isCasual() ? "Horde’s out — day or night, keep moving." : "Night. The beam is all you have.",
+      2.6
+    );
   }
   if (!hordeEverStarted) {
     beginWave();
@@ -2950,12 +3395,22 @@ cameraPerson = readCameraPersonPref();
 loadDifficultyPref();
 
 applyCharacterFromForm();
+syncHudChrome();
+resetExplorationMap();
 if (el.playerSpeedVal && el.playerSpeed) el.playerSpeedVal.textContent = el.playerSpeed.value;
 syncPauseRadiosFromGame();
 syncCameraFovAndRig();
 
-el.launcherPlay?.addEventListener("click", () => resetGame(false));
-el.restartBtn.addEventListener("click", () => resetGame(true));
+el.launcherPlay?.addEventListener("click", () => {
+  ensureAudio();
+  Sfx.uiClick();
+  resetGame(false);
+});
+el.restartBtn.addEventListener("click", () => {
+  ensureAudio();
+  Sfx.uiClick();
+  resetGame(true);
+});
 el.diffCasual?.addEventListener("change", () => {
   if (el.diffCasual.checked) {
     gameDifficulty = "casual";
